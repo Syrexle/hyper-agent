@@ -1,0 +1,65 @@
+import pytest
+
+from near_agent.market_data import MarketDataUnavailable, RootAiMcpMarketData, normalize_hyperliquid_symbol
+from near_agent.strategy import Candle
+
+
+class FakeMcpClient:
+    def __init__(self):
+        self.calls = []
+
+    def call_tool(self, name, arguments):
+        self.calls.append((name, arguments))
+        if name == "hyperliquid_mids":
+            return {"NEAR": "2.25"}
+        if name == "hyperliquid_candles":
+            return {
+                "result": [
+                    {"o": "2.0", "h": "2.2", "l": "1.9", "c": "2.1", "v": "1000"},
+                ]
+            }
+        if name == "hyperliquid_funding":
+            return {"result": [{"fundingRate": "0.0000125"}]}
+        if name == "hyperliquid_summaries":
+            return {"result": [{"coin": "NEAR", "max_leverage": 10, "open_interest": "100"}]}
+        raise AssertionError(name)
+
+
+def test_normalizes_hyperliquid_near_symbol():
+    assert normalize_hyperliquid_symbol("NEAR") == "NEAR-USDC"
+    assert normalize_hyperliquid_symbol("NEAR-USDC") == "NEAR-USDC"
+
+
+def test_fetches_near_mid_from_rootai_mcp():
+    adapter = RootAiMcpMarketData(FakeMcpClient())
+
+    assert adapter.mid("NEAR-USDC") == 2.25
+    assert adapter.client.calls[0] == ("hyperliquid_mids", {"include_spot": False})
+
+
+def test_fetches_near_candles_from_rootai_mcp():
+    adapter = RootAiMcpMarketData(FakeMcpClient())
+
+    candles = adapter.candles("NEAR-USDC", interval="1h", start_time=1, end_time=2)
+
+    assert candles == [Candle(open=2.0, high=2.2, low=1.9, close=2.1, volume=1000.0)]
+    assert adapter.client.calls[0][0] == "hyperliquid_candles"
+    assert adapter.client.calls[0][1]["coin"] == "NEAR"
+
+
+def test_fetches_funding_and_summary():
+    adapter = RootAiMcpMarketData(FakeMcpClient())
+
+    assert adapter.funding("NEAR-USDC", start_time=1, end_time=2) == 0.0000125
+    assert adapter.summary("NEAR-USDC")["max_leverage"] == 10
+
+
+def test_missing_mid_fails_closed():
+    class EmptyClient:
+        def call_tool(self, name, arguments):
+            return {}
+
+    adapter = RootAiMcpMarketData(EmptyClient())
+
+    with pytest.raises(MarketDataUnavailable):
+        adapter.mid("NEAR-USDC")
