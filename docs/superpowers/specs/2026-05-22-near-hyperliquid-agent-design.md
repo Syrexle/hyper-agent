@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a Python CLI daemon that trades only the NEAR perpetual on Hyperliquid using a live wallet key supplied locally by the operator. The bot is live-trading capable from day one, but every live order must pass hard risk gates, stateful daily limits, and an initial manual confirmation period.
+Build a Python CLI daemon that trades only the `NEAR-USDC` perpetual on Hyperliquid using a live wallet key supplied locally by the operator. The bot is live-trading capable from day one, but every live order must pass hard risk gates, stateful daily limits, and an initial manual confirmation period.
 
 ## Non-Goals
 
@@ -20,7 +20,7 @@ The process persists all decisions, orders, fills, confirmations, and lockouts i
 
 ## Trading Scope
 
-- Market: Hyperliquid NEAR perpetual only.
+- Market: Hyperliquid `NEAR-USDC` perpetual only.
 - Direction: long or short.
 - Style: intraday swing.
 - Trade frequency: maximum one new trade per local calendar day.
@@ -66,7 +66,7 @@ If the LLM provider is unavailable, the default behavior is configurable:
 
 Every candidate must pass all gates before order placement:
 
-- Symbol is exactly NEAR perp.
+- Symbol is exactly `NEAR-USDC` perp.
 - Fixed notional is 10 USD unless explicitly changed in config.
 - Leverage is at or below 2x.
 - No existing open bot-managed NEAR position unless the cycle is managing exits.
