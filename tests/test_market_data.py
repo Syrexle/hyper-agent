@@ -1,6 +1,12 @@
 import pytest
 
-from near_agent.market_data import MarketDataUnavailable, RootAiMcpMarketData, normalize_hyperliquid_symbol
+from near_agent.market_data import (
+    HyperliquidAccountData,
+    MarketDataUnavailable,
+    RootAiMcpMarketData,
+    normalize_hyperliquid_symbol,
+)
+from near_agent.models import Side
 from near_agent.strategy import Candle
 
 
@@ -63,3 +69,39 @@ def test_missing_mid_fails_closed():
 
     with pytest.raises(MarketDataUnavailable):
         adapter.mid("NEAR-USDC")
+
+
+def test_account_data_parses_existing_near_position():
+    class FakeInfo:
+        def user_state(self, address):
+            return {
+                "assetPositions": [
+                    {
+                        "position": {
+                            "coin": "NEAR",
+                            "szi": "-4.0",
+                            "entryPx": "2.5",
+                            "unrealizedPnl": "0.25",
+                            "liquidationPx": "3.2",
+                        }
+                    }
+                ]
+            }
+
+    account_data = HyperliquidAccountData(FakeInfo(), "0xabc")
+
+    position = account_data.existing_position("NEAR-USDC")
+
+    assert position is not None
+    assert position.symbol == "NEAR-USDC"
+    assert position.side == Side.SHORT
+    assert position.size == 4.0
+    assert position.entry_px == 2.5
+
+
+def test_account_data_returns_none_without_near_position():
+    class FakeInfo:
+        def user_state(self, address):
+            return {"assetPositions": []}
+
+    assert HyperliquidAccountData(FakeInfo(), "0xabc").existing_position("NEAR-USDC") is None

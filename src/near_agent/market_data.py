@@ -1,6 +1,7 @@
 from typing import Any, Protocol
 
 from near_agent.strategy import Candle
+from near_agent.models import PositionSnapshot, Side
 
 
 class MarketDataUnavailable(RuntimeError):
@@ -78,3 +79,35 @@ class RootAiMcpMarketData:
             if row.get("coin") == coin:
                 return row
         raise MarketDataUnavailable(f"Missing summary for {symbol}")
+
+
+class HyperliquidAccountData:
+    def __init__(self, info_client: Any, account_address: str):
+        self.info_client = info_client
+        self.account_address = account_address
+
+    def existing_position(self, symbol: str) -> PositionSnapshot | None:
+        coin = to_hyperliquid_coin(symbol)
+        state = self.info_client.user_state(self.account_address)
+        for item in state.get("assetPositions", []):
+            position = item.get("position", {})
+            if position.get("coin") != coin:
+                continue
+            signed_size = float(position.get("szi", "0"))
+            if signed_size == 0:
+                return None
+            return PositionSnapshot(
+                symbol=normalize_hyperliquid_symbol(coin),
+                side=Side.LONG if signed_size > 0 else Side.SHORT,
+                size=abs(signed_size),
+                entry_px=float(position.get("entryPx", 0)),
+                unrealized_pnl_usd=float(position.get("unrealizedPnl", 0)),
+                liquidation_px=_optional_float(position.get("liquidationPx")),
+            )
+        return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    return float(value)
