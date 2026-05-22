@@ -26,7 +26,8 @@ The process persists all decisions, orders, fills, confirmations, and lockouts i
 - Trade frequency: maximum one new trade per local calendar day.
 - Loss rule: after one realized losing trade in a day, no more new trades that day.
 - Position size: fixed 10 USD notional to start.
-- Leverage cap: 2x max.
+- Exchange market leverage: Hyperliquid currently reports `NEAR` / `NEAR-USDC` max leverage as 10x.
+- Bot effective leverage cap: 2x max. The bot must never size orders above 2x effective leverage even if Hyperliquid allows a higher market leverage setting.
 - Entries: hybrid execution. Try a conservative limit first, then use an aggressive limit if the signal is still valid and the conservative order times out.
 - Exits: ATR-based stop-loss and take-profit, with active position monitoring.
 - Holding period: target 4 to 12 hours, with mandatory flatten before the configured end-of-day cutoff.
@@ -68,7 +69,8 @@ Every candidate must pass all gates before order placement:
 
 - Symbol is exactly `NEAR-USDC` perp.
 - Fixed notional is 10 USD unless explicitly changed in config.
-- Leverage is at or below 2x.
+- Hyperliquid reports the NEAR market max leverage as 10x.
+- Bot effective leverage is at or below 2x.
 - No existing open bot-managed NEAR position unless the cycle is managing exits.
 - No new trade has already been opened today.
 - No realized bot-managed loss has occurred today.
