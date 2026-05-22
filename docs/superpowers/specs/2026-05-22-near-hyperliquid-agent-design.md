@@ -18,6 +18,8 @@ The daemon runs from the terminal and wakes up on a fixed schedule. Each cycle f
 
 The process persists all decisions, orders, fills, confirmations, and lockouts in SQLite so restarts do not bypass risk limits.
 
+On startup, the daemon must inspect the connected Hyperliquid account for any existing `NEAR-USDC` position. If one exists and is not already tracked in SQLite, the bot must adopt it as an external position, record it, and manage exits without requiring operator confirmation.
+
 ## Trading Scope
 
 - Market: Hyperliquid `NEAR-USDC` perpetual only.
@@ -72,6 +74,7 @@ Every candidate must pass all gates before order placement:
 - Hyperliquid reports the NEAR market max leverage as 10x.
 - Bot effective leverage is at or below 2x.
 - No existing open bot-managed NEAR position unless the cycle is managing exits.
+- If an existing account-level `NEAR-USDC` position is found, the bot must switch into position-management mode instead of opening a new trade.
 - No new trade has already been opened today.
 - No realized bot-managed loss has occurred today.
 - Stop-loss and take-profit are present.
@@ -126,8 +129,12 @@ When a trade is opened, the daemon manages it until closed.
 Management loop:
 
 - Poll current price, open orders, fills, and position state.
+- Detect and adopt any existing `NEAR-USDC` account position that was opened outside the bot or before the bot started.
+- For adopted positions, infer side, size, entry price, liquidation context, and current unrealized PnL from account state.
+- Attach or replace protective stop-loss and take-profit orders for adopted positions using the same ATR policy, unless safer existing reduce-only protective orders are already present.
 - Maintain stop-loss and take-profit orders where supported by the SDK.
 - If protective orders cannot be placed atomically, place and verify them immediately after entry.
+- Close adopted or bot-opened `NEAR-USDC` positions automatically when stop-loss, take-profit, trend invalidation, end-of-day flattening, or safety failure requires it.
 - Flatten before the configured end-of-day cutoff.
 - Record realized PnL after close.
 - If realized PnL is negative, lock the day.
@@ -141,6 +148,7 @@ Examples:
 - If market data fails, skip.
 - If account state cannot be read, skip.
 - If position state is ambiguous, stop opening new trades and print an operator action.
+- If an existing `NEAR-USDC` position is detected, prioritize managing and closing that position over generating new entries.
 - If live order submission fails, record the error and do not retry blindly.
 - If a protective stop cannot be verified after entry, immediately attempt to flatten.
 
