@@ -54,6 +54,36 @@ Signal inputs:
 
 The strategy must include a clear rationale for each candidate so the operator can audit why a trade was considered.
 
+## Data Sources
+
+Use the configured RootAI Edge MCP server at `https://mcp.rootai.wtf/mcp` as the primary public market and context data source where it has coverage.
+
+RootAI Edge MCP should provide:
+
+- Hyperliquid public market metadata, summaries, mids, order books, candles, and funding.
+- Crypto and macro news.
+- Asset-filtered news for NEAR and major market drivers.
+- Edge market signals when available.
+- Binance public reference data when useful for broad market context.
+- Pyth oracle prices when useful as an external reference.
+
+Use the official Hyperliquid Python SDK for data the RootAI Edge MCP cannot retrieve or should not retrieve:
+
+- Private account balance, margin, leverage, and fee-tier state.
+- Existing account-level `NEAR-USDC` positions.
+- Open orders, fills, realized PnL, and liquidation context for the connected wallet.
+- Live order placement, cancellation, reduce-only exits, and position flattening.
+- WebSocket-style account updates where available.
+
+Useful optional data outside RootAI Edge MCP and Hyperliquid SDK:
+
+- NEAR ecosystem-specific news, governance, unlocks, network incidents, and protocol announcements.
+- Cross-venue NEAR spot/perp liquidity and funding from venues not covered by RootAI Edge MCP.
+- Macro event calendar data for scheduled volatility events.
+- Social sentiment or developer-activity data if later added as a veto-only signal.
+
+These optional sources must never bypass deterministic strategy or risk gates. They may only inform skip/veto decisions or operator-facing rationale.
+
 ## LLM Veto
 
 The LLM layer is pluggable. The first provider is OpenAI using `OPENAI_API_KEY` from the local environment.
@@ -181,6 +211,6 @@ Live order placement should be isolated behind an executor interface so most tes
 
 ## Implementation Notes
 
-Use the official Hyperliquid Python SDK for signing and exchange operations to avoid custom signing mistakes. Use public Hyperliquid market data through the SDK or the RootAI MCP during development, but production execution should not depend on MCP availability.
+Use the official Hyperliquid Python SDK for signing, private account state, and exchange operations to avoid custom signing mistakes. Use the configured RootAI Edge MCP server for public market and context data where it has coverage. If RootAI Edge MCP is unavailable, the bot should fail closed for new entries unless a configured SDK fallback can reproduce the required public market inputs.
 
 The first implementation should include dry-run support even though the bot is live-capable. Dry-run exists for testing and diagnostics, not as the only mode.
