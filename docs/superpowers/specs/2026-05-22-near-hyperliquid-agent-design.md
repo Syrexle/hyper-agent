@@ -78,11 +78,14 @@ Use the official Hyperliquid Python SDK for data the RootAI Edge MCP cannot retr
 Useful optional data outside RootAI Edge MCP and Hyperliquid SDK:
 
 - NEAR ecosystem-specific news, governance, unlocks, network incidents, and protocol announcements.
+- XURL social tracking for the official NEAR X account at `https://x.com/NEARProtocol` / `@NEARProtocol`.
 - Cross-venue NEAR spot/perp liquidity and funding from venues not covered by RootAI Edge MCP.
 - Macro event calendar data for scheduled volatility events.
 - Social sentiment or developer-activity data if later added as a veto-only signal.
 
 These optional sources must never bypass deterministic strategy or risk gates. They may only inform skip/veto decisions or operator-facing rationale.
+
+The XURL social tracker should monitor only public posts from `@NEARProtocol` in the first version. It should capture post text, URL, timestamp, and basic engagement metrics when available. The bot may use these posts to veto or delay a trade around major announcements, outages, ecosystem launches, or other market-moving official communications, but it must not open or reverse trades based only on social data.
 
 ## LLM Veto
 
