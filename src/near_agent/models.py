@@ -26,6 +26,8 @@ class Decision:
     action: DecisionAction
     rationale: str
     allowed: bool
+    stop_loss_px: float | None = None
+    take_profit_px: float | None = None
     created_ts: float = 0
 
     def __post_init__(self) -> None:
