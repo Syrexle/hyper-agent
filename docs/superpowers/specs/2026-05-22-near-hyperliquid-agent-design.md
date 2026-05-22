@@ -87,6 +87,8 @@ These optional sources must never bypass deterministic strategy or risk gates. T
 
 The XURL social tracker should monitor only public posts from `@NEARProtocol` in the first version. It should capture post text, URL, timestamp, and basic engagement metrics when available. The bot may use these posts to veto or delay a trade around major announcements, outages, ecosystem launches, or other market-moving official communications, but it must not open or reverse trades based only on social data.
 
+XURL is not provided by the RootAI Edge MCP. It requires a local `xurl` installation plus X API authentication. The operator must create or use an X Developer app in the X Developer Console, register it with `xurl auth apps add`, and complete `xurl auth` before social tracking can run. If XURL is not installed or authenticated, the bot must continue without social context when `XURL_REQUIRED=false`, or fail closed for new entries when `XURL_REQUIRED=true`.
+
 ## LLM Veto
 
 The LLM layer is pluggable. The first provider is OpenAI using `OPENAI_API_KEY` from the local environment.
@@ -133,6 +135,8 @@ Optional variables:
 - `OPENAI_API_KEY=<openai-api-key>`
 - `LLM_PROVIDER=openai`
 - `LLM_REQUIRED=false`
+- `XURL_REQUIRED=false`
+- `XURL_APP_NAME=near-agent`
 - `CONFIRM_FIRST_N_TRADES=5`
 - `FIXED_NOTIONAL_USD=10`
 - `MAX_LEVERAGE=2`
