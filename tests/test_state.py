@@ -1,6 +1,6 @@
 from datetime import date
 
-from near_agent.models import Decision, DecisionAction, Side, Trade, TradeStatus
+from near_agent.models import Decision, DecisionAction, Side, Trade, TradeJournalEntry, TradeStatus
 from near_agent.state import StateStore
 from near_agent.trailing import PositionControls
 
@@ -10,7 +10,7 @@ def test_initializes_required_tables(tmp_path):
 
     tables = store.table_names()
 
-    assert {"decisions", "orders", "trades", "daily_state", "confirmations"} <= tables
+    assert {"decisions", "orders", "trades", "daily_state", "confirmations", "trade_journal"} <= tables
 
 
 def test_persists_decisions_across_reopen(tmp_path):
@@ -96,3 +96,29 @@ def test_persists_position_controls_for_trailing_stops(tmp_path):
 
     loaded = store.get_position_controls("NEAR-USDC")
     assert loaded == controls
+
+
+def test_records_trade_journal_entry_for_model_training(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    entry = TradeJournalEntry(
+        trade_id="trade-1",
+        submitted_live=True,
+        symbol="NEAR-USDC",
+        side=Side.LONG,
+        entry_px=2.25,
+        notional_usd=10,
+        leverage=10,
+        size_base=4.44444444,
+        stop_loss_px=2.1,
+        take_profit_px=2.6,
+        atr_pct=1.2,
+        rationale="multi-timeframe ema long",
+        min_atr_pct=0.75,
+        min_ema_spread_pct=0.35,
+        max_extension_pct=8,
+    )
+
+    store.record_trade_journal_entry(entry)
+
+    loaded = store.list_trade_journal_entries()
+    assert loaded == [entry]

@@ -1,0 +1,52 @@
+NEAR-USDC bot next steps
+
+Current plan
+- Run the bot as-is for now.
+- Collect enough paper/live dry-run observations before changing strategy rules again.
+- Compare real cycle outcomes against the latest backtest:
+  symbol=NEAR-USDC trades=21 gross_return=0.1585% return=0.0913% costs=$0.672 win_rate=38.0952% avg_trade=0.4345%
+
+Metrics to watch
+- Net return after fees, slippage, and funding.
+- Win rate.
+- Profit factor.
+- Average winner versus average loser.
+- Max drawdown.
+- Number of trades per week.
+- How often the bot skips because of ATR, EMA spread, or extension filters.
+- Whether longs and shorts behave differently.
+
+Likely next improvements
+- Add a sweep command to test parameter ranges.
+- Rank sweep results by net return, win rate, profit factor, drawdown, trade count, and average trade.
+- Run walk-forward tests so settings are optimized on one period and tested on a later period.
+- Split reporting into long-only and short-only performance.
+- Add a signal-quality classifier that accepts or rejects strategy signals after costs.
+- Add a regime filter for trend, chop, high-volatility breakout, and mean-reversion conditions.
+- Consider BTC/ETH trend and funding as additional filters.
+
+Parameter ranges to revisit
+- MIN_ATR_PCT: 0.75, 1.0, 1.25, 1.5
+- MIN_EMA_SPREAD_PCT: 0.35, 0.5, 0.75, 1.0
+- MAX_EXTENSION_PCT: 4, 6, 8, 10
+- EMA_FAST / EMA_SLOW: 5/20, 9/21, 12/26, 20/50
+- TRAILING_START_PCT: 1.0, 1.5, 2.0
+- TRAILING_DISTANCE_PCT: 0.5, 0.75, 1.0
+
+Candidate models
+- Start with parameter sweeps before ML.
+- Logistic regression for signal accept/reject.
+- Random forest for signal accept/reject.
+- XGBoost or LightGBM if enough labeled trades are available.
+- Use the LLM veto as a final sanity filter, not the main prediction engine.
+
+Useful model features
+- ATR percent.
+- EMA spread percent on primary and confirmation timeframes.
+- Distance from slow EMA.
+- 1h and 4h returns.
+- Volume change.
+- Funding rate.
+- BTC and ETH trend direction.
+- Recent realized volatility.
+- Time of day and day of week.

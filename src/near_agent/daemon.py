@@ -5,7 +5,7 @@ from typing import Protocol
 from near_agent.config import Settings
 from near_agent.executor import DryRunExecutor, ExecutionPlan, LiveExecutionGate
 from near_agent.llm_veto import DisabledVetoProvider
-from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeStatus
+from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeJournalEntry, TradeStatus
 from near_agent.risk import RiskEngine
 from near_agent.sizing import PositionSizing
 from near_agent.state import StateStore
@@ -152,6 +152,26 @@ class TradingDaemon:
                 size_base=sizing.size_base,
             )
         )
+        if result.submitted:
+            self.state.record_trade_journal_entry(
+                TradeJournalEntry(
+                    trade_id=trade_id,
+                    submitted_live=True,
+                    symbol=decision.symbol,
+                    side=Side.LONG if decision.action == DecisionAction.LONG else Side.SHORT,
+                    entry_px=entry_px,
+                    notional_usd=float(sizing.notional_usd),
+                    leverage=float(sizing.leverage),
+                    size_base=sizing.size_base,
+                    stop_loss_px=decision.stop_loss_px or 0,
+                    take_profit_px=decision.take_profit_px or 0,
+                    atr_pct=sizing.atr_pct,
+                    rationale=decision.rationale,
+                    min_atr_pct=float(self.settings.min_atr_pct),
+                    min_ema_spread_pct=float(self.settings.min_ema_spread_pct),
+                    max_extension_pct=float(self.settings.max_extension_pct),
+                )
+            )
         self.state.upsert_position_controls(
             PositionControls(
                 symbol=decision.symbol,

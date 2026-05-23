@@ -4,7 +4,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from near_agent.models import Decision, DecisionAction, Side, Trade, TradeStatus
+from near_agent.models import Decision, DecisionAction, Side, Trade, TradeJournalEntry, TradeStatus
 from near_agent.trailing import PositionControls
 
 
@@ -70,6 +70,31 @@ class StateStore:
                     initial_stop_px REAL NOT NULL,
                     trailing_stop_px REAL,
                     highest_pnl_pct REAL NOT NULL DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS trade_journal (
+                    trade_id TEXT PRIMARY KEY,
+                    created_ts REAL NOT NULL,
+                    submitted_live INTEGER NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    entry_px REAL NOT NULL,
+                    notional_usd REAL NOT NULL,
+                    leverage REAL NOT NULL,
+                    size_base REAL NOT NULL,
+                    stop_loss_px REAL NOT NULL,
+                    take_profit_px REAL NOT NULL,
+                    atr_pct REAL NOT NULL,
+                    rationale TEXT NOT NULL,
+                    min_atr_pct REAL NOT NULL,
+                    min_ema_spread_pct REAL NOT NULL,
+                    max_extension_pct REAL NOT NULL,
+                    exit_px REAL,
+                    realized_pnl_usd REAL,
+                    realized_pnl_pct REAL,
+                    exit_reason TEXT,
+                    highest_pnl_pct REAL,
+                    max_drawdown_pct REAL
                 );
                 """
             )
@@ -261,3 +286,103 @@ class StateStore:
     def clear_position_controls(self, symbol: str) -> None:
         with self._connect() as con:
             con.execute("DELETE FROM position_controls WHERE symbol = ?", (symbol,))
+
+    def record_trade_journal_entry(self, entry: TradeJournalEntry) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO trade_journal (
+                    trade_id, created_ts, submitted_live, symbol, side, entry_px, notional_usd,
+                    leverage, size_base, stop_loss_px, take_profit_px, atr_pct, rationale,
+                    min_atr_pct, min_ema_spread_pct, max_extension_pct, exit_px,
+                    realized_pnl_usd, realized_pnl_pct, exit_reason, highest_pnl_pct,
+                    max_drawdown_pct
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trade_id) DO UPDATE SET
+                    submitted_live = excluded.submitted_live,
+                    entry_px = excluded.entry_px,
+                    notional_usd = excluded.notional_usd,
+                    leverage = excluded.leverage,
+                    size_base = excluded.size_base,
+                    stop_loss_px = excluded.stop_loss_px,
+                    take_profit_px = excluded.take_profit_px,
+                    atr_pct = excluded.atr_pct,
+                    rationale = excluded.rationale,
+                    min_atr_pct = excluded.min_atr_pct,
+                    min_ema_spread_pct = excluded.min_ema_spread_pct,
+                    max_extension_pct = excluded.max_extension_pct,
+                    exit_px = excluded.exit_px,
+                    realized_pnl_usd = excluded.realized_pnl_usd,
+                    realized_pnl_pct = excluded.realized_pnl_pct,
+                    exit_reason = excluded.exit_reason,
+                    highest_pnl_pct = excluded.highest_pnl_pct,
+                    max_drawdown_pct = excluded.max_drawdown_pct
+                """,
+                (
+                    entry.trade_id,
+                    entry.created_ts,
+                    int(entry.submitted_live),
+                    entry.symbol,
+                    entry.side.value,
+                    entry.entry_px,
+                    entry.notional_usd,
+                    entry.leverage,
+                    entry.size_base,
+                    entry.stop_loss_px,
+                    entry.take_profit_px,
+                    entry.atr_pct,
+                    entry.rationale,
+                    entry.min_atr_pct,
+                    entry.min_ema_spread_pct,
+                    entry.max_extension_pct,
+                    entry.exit_px,
+                    entry.realized_pnl_usd,
+                    entry.realized_pnl_pct,
+                    entry.exit_reason,
+                    entry.highest_pnl_pct,
+                    entry.max_drawdown_pct,
+                ),
+            )
+
+    def list_trade_journal_entries(self) -> list[TradeJournalEntry]:
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT
+                    trade_id, created_ts, submitted_live, symbol, side, entry_px, notional_usd,
+                    leverage, size_base, stop_loss_px, take_profit_px, atr_pct, rationale,
+                    min_atr_pct, min_ema_spread_pct, max_extension_pct, exit_px,
+                    realized_pnl_usd, realized_pnl_pct, exit_reason, highest_pnl_pct,
+                    max_drawdown_pct
+                FROM trade_journal
+                ORDER BY created_ts, trade_id
+                """
+            ).fetchall()
+        return [
+            TradeJournalEntry(
+                trade_id=row["trade_id"],
+                created_ts=row["created_ts"],
+                submitted_live=bool(row["submitted_live"]),
+                symbol=row["symbol"],
+                side=Side(row["side"]),
+                entry_px=row["entry_px"],
+                notional_usd=row["notional_usd"],
+                leverage=row["leverage"],
+                size_base=row["size_base"],
+                stop_loss_px=row["stop_loss_px"],
+                take_profit_px=row["take_profit_px"],
+                atr_pct=row["atr_pct"],
+                rationale=row["rationale"],
+                min_atr_pct=row["min_atr_pct"],
+                min_ema_spread_pct=row["min_ema_spread_pct"],
+                max_extension_pct=row["max_extension_pct"],
+                exit_px=row["exit_px"],
+                realized_pnl_usd=row["realized_pnl_usd"],
+                realized_pnl_pct=row["realized_pnl_pct"],
+                exit_reason=row["exit_reason"],
+                highest_pnl_pct=row["highest_pnl_pct"],
+                max_drawdown_pct=row["max_drawdown_pct"],
+            )
+            for row in rows
+        ]

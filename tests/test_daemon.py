@@ -2,9 +2,9 @@ from datetime import date
 
 from near_agent.config import Settings
 from near_agent.daemon import TradingDaemon
-from near_agent.executor import DryRunExecutor, LiveExecutionGate
+from near_agent.executor import DryRunExecutor, ExecutionResult, LiveExecutionGate
 from near_agent.llm_veto import VetoResult
-from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, TradeStatus
+from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeStatus
 from near_agent.risk import RiskEngine
 from near_agent.sizing import PositionSizing
 from near_agent.state import StateStore
@@ -121,6 +121,22 @@ class CapturingExecutor(DryRunExecutor):
         return super().open_position(plan)
 
 
+class SubmittedExecutor(CapturingExecutor):
+    def open_position(self, plan):
+        self.opened_plans.append(plan)
+        self.state.upsert_trade(
+            Trade(
+                trade_id=plan.trade_id,
+                symbol=plan.symbol,
+                side=plan.side,
+                status=TradeStatus.OPEN,
+                notional_usd=float(plan.notional_usd),
+                entry_px=plan.entry_px,
+            )
+        )
+        return ExecutionResult(trade_id=plan.trade_id, submitted=True, message="submitted")
+
+
 def test_opens_dry_run_trade_after_strategy_risk_and_veto_pass(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
     executor = CapturingExecutor(store)
@@ -206,6 +222,44 @@ def test_notifier_receives_signal_and_entry_after_trade_opens(tmp_path):
 
     assert notifier.events[0] == ("signal", DecisionAction.LONG, "NEAR-USDC", 2.3)
     assert notifier.events[1][0] == "entry"
+
+
+def test_live_submitted_trade_records_journal_entry(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    decision = Decision(
+        symbol="NEAR-USDC",
+        action=DecisionAction.LONG,
+        allowed=True,
+        rationale="trend continuation",
+        stop_loss_px=2.1,
+        take_profit_px=2.6,
+    )
+    settings = Settings(
+        live_trading=True,
+        hyperliquid_private_key="0x" + "1" * 64,
+        hyperliquid_account_address="0xabc",
+        confirm_first_n_trades=0,
+    )
+    daemon = TradingDaemon(
+        settings=settings,
+        state=store,
+        account_data=StaticAccountData(position=None),
+        executor=SubmittedExecutor(store),
+        candidate_provider=lambda: decision,
+        risk_engine=RiskEngine(settings, store),
+        veto_provider=AllowingVeto(),
+        entry_price_provider=lambda: 2.3,
+        sizing_provider=lambda price: PositionSizing(settings.fixed_notional_usd, settings.max_leverage, 4.34, 1.2),
+    )
+
+    result = daemon.run_once(today=date(2026, 5, 22))
+
+    assert result == "opened_live_position"
+    journal = store.list_trade_journal_entries()
+    assert len(journal) == 1
+    assert journal[0].submitted_live is True
+    assert journal[0].symbol == "NEAR-USDC"
+    assert journal[0].atr_pct == 1.2
 
 
 def test_live_trade_requires_confirmation_during_initial_confirmation_window(tmp_path):

@@ -1,5 +1,7 @@
 from pathlib import Path
 from time import sleep
+import csv
+import sys
 
 import typer
 
@@ -138,3 +140,61 @@ def backtest(
             ]
         )
     )
+
+
+@app.command()
+def export_journal(db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path")) -> None:
+    store = StateStore(db)
+    fields = [
+        "trade_id",
+        "created_ts",
+        "submitted_live",
+        "symbol",
+        "side",
+        "entry_px",
+        "notional_usd",
+        "leverage",
+        "size_base",
+        "stop_loss_px",
+        "take_profit_px",
+        "atr_pct",
+        "rationale",
+        "min_atr_pct",
+        "min_ema_spread_pct",
+        "max_extension_pct",
+        "exit_px",
+        "realized_pnl_usd",
+        "realized_pnl_pct",
+        "exit_reason",
+        "highest_pnl_pct",
+        "max_drawdown_pct",
+    ]
+    writer = csv.DictWriter(sys.stdout, fieldnames=fields)
+    writer.writeheader()
+    for entry in store.list_trade_journal_entries():
+        writer.writerow(
+            {
+                "trade_id": entry.trade_id,
+                "created_ts": entry.created_ts,
+                "submitted_live": entry.submitted_live,
+                "symbol": entry.symbol,
+                "side": entry.side.value,
+                "entry_px": entry.entry_px,
+                "notional_usd": entry.notional_usd,
+                "leverage": entry.leverage,
+                "size_base": entry.size_base,
+                "stop_loss_px": entry.stop_loss_px,
+                "take_profit_px": entry.take_profit_px,
+                "atr_pct": entry.atr_pct,
+                "rationale": entry.rationale,
+                "min_atr_pct": entry.min_atr_pct,
+                "min_ema_spread_pct": entry.min_ema_spread_pct,
+                "max_extension_pct": entry.max_extension_pct,
+                "exit_px": entry.exit_px,
+                "realized_pnl_usd": entry.realized_pnl_usd,
+                "realized_pnl_pct": entry.realized_pnl_pct,
+                "exit_reason": entry.exit_reason,
+                "highest_pnl_pct": entry.highest_pnl_pct,
+                "max_drawdown_pct": entry.max_drawdown_pct,
+            }
+        )

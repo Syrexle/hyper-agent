@@ -50,3 +50,10 @@ def test_backtest_can_run_offline_without_network(tmp_path):
 
     assert result.exit_code == 0
     assert "offline backtest requires market data" in result.output
+
+
+def test_export_journal_outputs_csv_header(tmp_path):
+    result = runner.invoke(app, ["export-journal", "--db", str(tmp_path / "agent.sqlite")])
+
+    assert result.exit_code == 0
+    assert "trade_id,created_ts,submitted_live,symbol,side" in result.output
