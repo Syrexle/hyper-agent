@@ -29,7 +29,7 @@ def test_adopts_existing_near_position_without_confirmation(tmp_path):
         unrealized_pnl_usd=0.5,
     )
     daemon = TradingDaemon(
-        settings=Settings(),
+        settings=Settings(_env_file=None),
         state=store,
         account_data=StaticAccountData(position),
         executor=DryRunExecutor(store),
@@ -54,7 +54,7 @@ def test_existing_position_is_closed_without_confirmation_when_requested(tmp_pat
     )
     executor = DryRunExecutor(store)
     daemon = TradingDaemon(
-        settings=Settings(),
+        settings=Settings(_env_file=None),
         state=store,
         account_data=StaticAccountData(position),
         executor=executor,
@@ -77,7 +77,7 @@ def test_existing_position_is_closed_automatically_when_management_rule_triggers
     )
     executor = DryRunExecutor(store)
     daemon = TradingDaemon(
-        settings=Settings(),
+        settings=Settings(_env_file=None),
         state=store,
         account_data=StaticAccountData(position),
         executor=executor,
@@ -199,9 +199,16 @@ class SubmittedExecutor(CapturingExecutor):
         return ExecutionResult(trade_id=plan.trade_id, submitted=True, message="submitted")
 
 
+class RejectedLiveExecutor(CapturingExecutor):
+    def open_position(self, plan):
+        self.opened_plans.append(plan)
+        return ExecutionResult(trade_id=plan.trade_id, submitted=False, message="minimum order value")
+
+
 def test_opens_dry_run_trade_after_strategy_risk_and_veto_pass(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
     executor = CapturingExecutor(store)
+    settings = Settings(_env_file=None)
     decision = Decision(
         symbol="NEAR-USDC",
         action=DecisionAction.LONG,
@@ -211,17 +218,17 @@ def test_opens_dry_run_trade_after_strategy_risk_and_veto_pass(tmp_path):
         take_profit_px=2.6,
     )
     daemon = TradingDaemon(
-        settings=Settings(),
+        settings=settings,
         state=store,
         account_data=StaticAccountData(position=None),
         executor=executor,
         candidate_provider=lambda: decision,
-        risk_engine=RiskEngine(Settings(), store),
+        risk_engine=RiskEngine(settings, store),
         veto_provider=AllowingVeto(),
         entry_price_provider=lambda: 2.3,
         sizing_provider=lambda price: PositionSizing(
-            notional_usd=Settings().fixed_notional_usd,
-            leverage=Settings().max_leverage,
+                notional_usd=settings.fixed_notional_usd,
+                leverage=settings.max_leverage,
             size_base=4.34782609,
             atr_pct=1.2,
         ),
@@ -233,7 +240,7 @@ def test_opens_dry_run_trade_after_strategy_risk_and_veto_pass(tmp_path):
     assert store.has_trade_on(date(2026, 5, 22))
     assert executor.opened_plans[0].symbol == "NEAR-USDC"
     assert executor.opened_plans[0].side == Side.LONG
-    assert executor.opened_plans[0].notional_usd == Settings().fixed_notional_usd
+    assert executor.opened_plans[0].notional_usd == settings.fixed_notional_usd
     controls = store.get_position_controls("NEAR-USDC")
     assert controls is not None
     assert controls.initial_stop_px == 2.1
@@ -268,15 +275,20 @@ def test_notifier_receives_signal_and_entry_after_trade_opens(tmp_path):
         take_profit_px=2.6,
     )
     daemon = TradingDaemon(
-        settings=Settings(),
+        settings=Settings(_env_file=None),
         state=store,
         account_data=StaticAccountData(position=None),
         executor=CapturingExecutor(store),
         candidate_provider=lambda: decision,
-        risk_engine=RiskEngine(Settings(), store),
+        risk_engine=RiskEngine(Settings(_env_file=None), store),
         veto_provider=AllowingVeto(),
         entry_price_provider=lambda: 2.3,
-        sizing_provider=lambda price: PositionSizing(Settings().fixed_notional_usd, Settings().max_leverage, 4.34, 1.2),
+        sizing_provider=lambda price: PositionSizing(
+            Settings(_env_file=None).fixed_notional_usd,
+            Settings(_env_file=None).max_leverage,
+            4.34,
+            1.2,
+        ),
         notifier=notifier,
     )
 
@@ -322,6 +334,41 @@ def test_live_submitted_trade_records_journal_entry(tmp_path):
     assert journal[0].submitted_live is True
     assert journal[0].symbol == "NEAR-USDC"
     assert journal[0].atr_pct == 1.2
+
+
+def test_rejected_live_order_is_not_marked_open_or_journaled(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    decision = Decision(
+        symbol="NEAR-USDC",
+        action=DecisionAction.SHORT,
+        allowed=True,
+        rationale="forced test",
+        stop_loss_px=2.2,
+        take_profit_px=1.8,
+    )
+    settings = Settings(
+        live_trading=True,
+        hyperliquid_private_key="0x" + "1" * 64,
+        hyperliquid_account_address="0xabc",
+        confirm_first_n_trades=0,
+    )
+    daemon = TradingDaemon(
+        settings=settings,
+        state=store,
+        account_data=StaticAccountData(position=None),
+        executor=RejectedLiveExecutor(store),
+        candidate_provider=lambda: decision,
+        risk_engine=RiskEngine(settings, store),
+        veto_provider=AllowingVeto(),
+        entry_price_provider=lambda: 2.0,
+        sizing_provider=lambda price: PositionSizing(1, 10, 0.5, 1.2),
+    )
+
+    result = daemon.run_once(today=date(2026, 5, 22))
+
+    assert result == "live_order_rejected"
+    assert store.list_trade_journal_entries() == []
+    assert store.has_trade_on(date(2026, 5, 22)) is False
 
 
 def test_live_trade_requires_confirmation_during_initial_confirmation_window(tmp_path):

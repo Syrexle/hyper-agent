@@ -77,7 +77,14 @@ class HyperliquidLiveExecutor:
         coin = _to_hyperliquid_coin(plan.symbol)
         is_buy = plan.side == Side.LONG
         size = round(plan.size_base if plan.size_base is not None else float(plan.notional_usd) / plan.entry_px, self.size_decimals)
-        self.sdk_client.market_open(coin, is_buy=is_buy, sz=size, slippage=self.slippage)
+        response = self.sdk_client.market_open(coin, is_buy=is_buy, sz=size, slippage=self.slippage)
+        rejection = _order_rejection_reason(response)
+        if rejection:
+            return ExecutionResult(
+                trade_id=plan.trade_id,
+                submitted=False,
+                message=rejection,
+            )
         self.state.upsert_trade(
             Trade(
                 trade_id=plan.trade_id,
@@ -107,3 +114,17 @@ def _to_hyperliquid_coin(symbol: str) -> str:
     if symbol == "NEAR-USDC":
         return "NEAR"
     raise ValueError(f"Unsupported live execution symbol: {symbol}")
+
+
+def _order_rejection_reason(response) -> str | None:
+    if not isinstance(response, dict):
+        return None
+    if response.get("status") == "err":
+        return str(response.get("response") or "live order rejected")
+    statuses = response.get("response", {}).get("data", {}).get("statuses", [])
+    if not isinstance(statuses, list):
+        return None
+    errors = [status.get("error") for status in statuses if isinstance(status, dict) and status.get("error")]
+    if errors:
+        return "; ".join(str(error) for error in errors)
+    return None

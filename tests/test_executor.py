@@ -69,6 +69,39 @@ def test_live_executor_delegates_market_open_to_hyperliquid_sdk(tmp_path):
     assert store.get_trade("trade-1") is not None
 
 
+def test_live_executor_does_not_record_rejected_market_open(tmp_path):
+    class FakeExchange:
+        def market_open(self, name, is_buy, sz, slippage):
+            return {
+                "status": "ok",
+                "response": {
+                    "type": "order",
+                    "data": {"statuses": [{"error": "Order must have minimum value of $10. asset=74"}]},
+                },
+            }
+
+    store = StateStore(tmp_path / "agent.sqlite")
+    executor = HyperliquidLiveExecutor(store, FakeExchange())
+    plan = ExecutionPlan(
+        trade_id="trade-1",
+        symbol="NEAR-USDC",
+        side=Side.SHORT,
+        action=DecisionAction.SHORT,
+        notional_usd=1,
+        entry_px=2.0,
+        stop_loss_px=2.2,
+        take_profit_px=1.8,
+        leverage=10,
+        size_base=0.5,
+    )
+
+    result = executor.open_position(plan)
+
+    assert result.submitted is False
+    assert "minimum value" in result.message
+    assert store.get_trade("trade-1") is None
+
+
 def test_live_executor_delegates_market_close_to_hyperliquid_sdk(tmp_path):
     class FakeExchange:
         def __init__(self):

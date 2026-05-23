@@ -152,6 +152,8 @@ class TradingDaemon:
                 size_base=sizing.size_base,
             )
         )
+        if self.settings.live_trading and not result.submitted:
+            return "live_order_rejected"
         if result.submitted:
             self.state.record_trade_journal_entry(
                 TradeJournalEntry(
