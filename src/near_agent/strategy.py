@@ -52,6 +52,9 @@ class MultiTimeframeEmaStrategy:
         ema_slow: int = 21,
         atr_period: int = 14,
         initial_stop_pct: float = 2.0,
+        min_atr_pct: float = 0.75,
+        min_ema_spread_pct: float = 0.35,
+        max_extension_pct: float = 8.0,
     ):
         if ema_fast >= ema_slow:
             raise ValueError("ema_fast must be less than ema_slow")
@@ -60,6 +63,9 @@ class MultiTimeframeEmaStrategy:
         self.ema_slow = ema_slow
         self.atr_period = atr_period
         self.initial_stop_pct = initial_stop_pct
+        self.min_atr_pct = min_atr_pct
+        self.min_ema_spread_pct = min_ema_spread_pct
+        self.max_extension_pct = max_extension_pct
 
     def evaluate(self, primary: list[Candle], confirm: list[Candle]) -> Decision:
         minimum = self.ema_slow + 2
@@ -73,6 +79,15 @@ class MultiTimeframeEmaStrategy:
 
         primary_signal = self._crossover_signal(primary)
         confirm_trend = self._trend(confirm)
+        if primary_signal in {DecisionAction.LONG, DecisionAction.SHORT}:
+            filter_reason = self._filter_reason(primary, confirm, primary_signal)
+            if filter_reason:
+                return Decision(
+                    symbol=self.symbol,
+                    action=DecisionAction.SKIP,
+                    allowed=False,
+                    rationale=filter_reason,
+                )
         if primary_signal == DecisionAction.LONG and confirm_trend == DecisionAction.LONG:
             return self._decision(primary, DecisionAction.LONG)
         if primary_signal == DecisionAction.SHORT and confirm_trend == DecisionAction.SHORT:
@@ -103,6 +118,40 @@ class MultiTimeframeEmaStrategy:
         fast = ema_values(closes, self.ema_fast)
         slow = ema_values(closes, self.ema_slow)
         return DecisionAction.LONG if fast[-1] > slow[-1] else DecisionAction.SHORT
+
+    def _filter_reason(self, primary: list[Candle], confirm: list[Candle], action: DecisionAction) -> str | None:
+        primary_stats = self._ema_stats(primary)
+        confirm_stats = self._ema_stats(confirm)
+        last = primary[-1]
+        atr_pct = calculate_atr(primary, self.atr_period) / last.close * 100
+        if atr_pct < self.min_atr_pct:
+            return f"No NEAR setup: ATR {atr_pct:.4f}% is below minimum {self.min_atr_pct:.4f}%"
+
+        strong_primary = primary_stats["spread_pct"] >= self.min_ema_spread_pct
+        strong_confirm = confirm_stats["spread_pct"] >= self.min_ema_spread_pct
+        if not strong_primary or not strong_confirm:
+            return (
+                "No NEAR setup: EMA spread is too small to avoid chop "
+                f"(primary {primary_stats['spread_pct']:.4f}%, confirm {confirm_stats['spread_pct']:.4f}%)"
+            )
+
+        extension_pct = abs((last.close - primary_stats["slow"]) / primary_stats["slow"] * 100)
+        if extension_pct > self.max_extension_pct:
+            return (
+                f"No NEAR setup: price is extended {extension_pct:.4f}% from slow EMA, "
+                f"above max {self.max_extension_pct:.4f}%"
+            )
+        return None
+
+    def _ema_stats(self, candles: list[Candle]) -> dict[str, float]:
+        closes = [c.close for c in candles]
+        fast = ema_values(closes, self.ema_fast)[-1]
+        slow = ema_values(closes, self.ema_slow)[-1]
+        return {
+            "fast": fast,
+            "slow": slow,
+            "spread_pct": abs((fast - slow) / slow * 100),
+        }
 
     def _decision(self, candles: list[Candle], action: DecisionAction) -> Decision:
         last = candles[-1]

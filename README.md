@@ -46,6 +46,9 @@ To run a simple historical strategy backtest from RootAI MCP market data:
 uv run near-agent backtest
 ```
 
+Backtest output reports both gross and net return. Net return subtracts configured fee,
+slippage, and funding assumptions.
+
 For live trading, create a local `.env` from `.env.example` and provide:
 
 ```bash
@@ -92,8 +95,20 @@ TRAILING_START_PCT=1
 TRAILING_DISTANCE_PCT=0.5
 INITIAL_STOP_PCT=2
 BACKTEST_DAYS=90
+BACKTEST_FEE_BPS=5
+BACKTEST_SLIPPAGE_BPS=10
+BACKTEST_FUNDING_BPS=2
+MIN_ATR_PCT=0.75
+MIN_EMA_SPREAD_PCT=0.35
+MAX_EXTENSION_PCT=8
 DISCORD_WEBHOOK_URL=
 ```
+
+The stricter signal filters reduce trade frequency by requiring:
+
+- Primary and confirmation timeframes to agree with enough EMA separation.
+- ATR to be above `MIN_ATR_PCT`, so NEAR is actually moving.
+- Price extension from the slow EMA to stay below `MAX_EXTENSION_PCT`.
 
 ## Current State
 

@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     trailing_distance_pct: Decimal = Field(default=Decimal("0.5"), alias="TRAILING_DISTANCE_PCT")
     initial_stop_pct: Decimal = Field(default=Decimal("2"), alias="INITIAL_STOP_PCT")
     backtest_days: int = Field(default=90, alias="BACKTEST_DAYS")
+    backtest_fee_bps: Decimal = Field(default=Decimal("5"), alias="BACKTEST_FEE_BPS")
+    backtest_slippage_bps: Decimal = Field(default=Decimal("10"), alias="BACKTEST_SLIPPAGE_BPS")
+    backtest_funding_bps: Decimal = Field(default=Decimal("2"), alias="BACKTEST_FUNDING_BPS")
+    min_atr_pct: Decimal = Field(default=Decimal("0.75"), alias="MIN_ATR_PCT")
+    min_ema_spread_pct: Decimal = Field(default=Decimal("0.35"), alias="MIN_EMA_SPREAD_PCT")
+    max_extension_pct: Decimal = Field(default=Decimal("8"), alias="MAX_EXTENSION_PCT")
     discord_webhook_url: str | None = Field(default=None, alias="DISCORD_WEBHOOK_URL")
 
     def validate_for_startup(self) -> None:
@@ -65,6 +71,18 @@ class Settings(BaseSettings):
             raise ValueError("Trailing and initial stop percentages must be positive")
         if self.backtest_days <= 0:
             raise ValueError("BACKTEST_DAYS must be greater than zero")
+        if self.backtest_fee_bps < 0:
+            raise ValueError("BACKTEST_FEE_BPS must be zero or greater")
+        if self.backtest_slippage_bps < 0:
+            raise ValueError("BACKTEST_SLIPPAGE_BPS must be zero or greater")
+        if self.backtest_funding_bps < 0:
+            raise ValueError("BACKTEST_FUNDING_BPS must be zero or greater")
+        if self.min_atr_pct < 0:
+            raise ValueError("MIN_ATR_PCT must be zero or greater")
+        if self.min_ema_spread_pct < 0:
+            raise ValueError("MIN_EMA_SPREAD_PCT must be zero or greater")
+        if self.max_extension_pct <= 0:
+            raise ValueError("MAX_EXTENSION_PCT must be greater than zero")
         if self.llm_provider not in {"openai", "venice", "disabled"}:
             raise ValueError("LLM_PROVIDER must be openai, venice, or disabled")
         if self.llm_required:

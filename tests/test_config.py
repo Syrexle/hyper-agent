@@ -20,6 +20,9 @@ def test_defaults_are_safe_for_dry_run():
     assert settings.primary_timeframe == "1h"
     assert settings.confirm_timeframe == "4h"
     assert settings.trailing_start_pct == 1
+    assert settings.backtest_fee_bps > 0
+    assert settings.min_atr_pct > 0
+    assert settings.min_ema_spread_pct > 0
 
 
 def test_live_mode_requires_private_key_and_account_address():
@@ -77,4 +80,11 @@ def test_rejects_unsupported_timeframes():
     settings = make_settings(primary_timeframe="2h")
 
     with pytest.raises(ValueError, match="PRIMARY_TIMEFRAME"):
+        settings.validate_for_startup()
+
+
+def test_rejects_negative_backtest_costs():
+    settings = make_settings(backtest_fee_bps=-1)
+
+    with pytest.raises(ValueError, match="BACKTEST_FEE_BPS"):
         settings.validate_for_startup()

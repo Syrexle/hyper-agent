@@ -46,6 +46,12 @@ def init(path: Path = typer.Option(Path("."), help="Directory to initialize")) -
                     "TRAILING_DISTANCE_PCT=0.5",
                     "INITIAL_STOP_PCT=2",
                     "BACKTEST_DAYS=90",
+                    "BACKTEST_FEE_BPS=5",
+                    "BACKTEST_SLIPPAGE_BPS=10",
+                    "BACKTEST_FUNDING_BPS=2",
+                    "MIN_ATR_PCT=0.75",
+                    "MIN_EMA_SPREAD_PCT=0.35",
+                    "MAX_EXTENSION_PCT=8",
                     "DISCORD_WEBHOOK_URL=",
                     "",
                 ]
@@ -124,7 +130,9 @@ def backtest(
             [
                 f"symbol={results['symbol']}",
                 f"trades={results['trades']}",
+                f"gross_return={results['gross_return_pct']}%",
                 f"return={results['total_return_pct']}%",
+                f"costs=${results['total_cost_usd']}",
                 f"win_rate={results['win_rate_pct']}%",
                 f"avg_trade={results['avg_trade_pct']}%",
             ]

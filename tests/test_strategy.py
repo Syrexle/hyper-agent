@@ -82,3 +82,51 @@ def test_multi_timeframe_ema_blocks_primary_signal_when_confirm_timeframe_disagr
 
     assert decision.action == DecisionAction.SKIP
     assert "not aligned" in decision.rationale.lower()
+
+
+def test_multi_timeframe_ema_blocks_when_atr_is_too_low():
+    primary = [candle(px, px + 0.001, px - 0.001, px) for px in [2, 1.99, 1.98, 1.97, 1.98, 1.99, 2.01, 2.02]]
+    confirm = [candle(px, px + 0.001, px - 0.001, px) for px in [1.9, 1.92, 1.94, 1.96, 1.98, 2.0, 2.02, 2.04]]
+    strategy = MultiTimeframeEmaStrategy(
+        symbol="NEAR-USDC",
+        ema_fast=2,
+        ema_slow=4,
+        min_atr_pct=1.0,
+    )
+
+    decision = strategy.evaluate(primary, confirm)
+
+    assert decision.action == DecisionAction.SKIP
+    assert "atr" in decision.rationale.lower()
+
+
+def test_multi_timeframe_ema_blocks_chop_when_ema_spread_is_too_small():
+    primary = [candle(px, px + 0.02, px - 0.02, px) for px in [2, 1.95, 1.9, 1.88, 1.9, 1.95, 2.05, 2.15]]
+    confirm = [candle(px, px + 0.02, px - 0.02, px) for px in [1.8, 1.85, 1.9, 1.95, 2.0, 2.05, 2.1, 2.2]]
+    strategy = MultiTimeframeEmaStrategy(
+        symbol="NEAR-USDC",
+        ema_fast=2,
+        ema_slow=4,
+        min_ema_spread_pct=20.0,
+    )
+
+    decision = strategy.evaluate(primary, confirm)
+
+    assert decision.action == DecisionAction.SKIP
+    assert "spread" in decision.rationale.lower()
+
+
+def test_multi_timeframe_ema_blocks_overextended_trend_entry():
+    primary = [candle(px, px + 0.04, px - 0.04, px) for px in [2, 1.95, 1.9, 1.88, 1.9, 1.95, 2.2, 2.7]]
+    confirm = [candle(px, px + 0.04, px - 0.04, px) for px in [1.8, 1.85, 1.9, 1.95, 2.0, 2.05, 2.1, 2.2]]
+    strategy = MultiTimeframeEmaStrategy(
+        symbol="NEAR-USDC",
+        ema_fast=2,
+        ema_slow=4,
+        max_extension_pct=5.0,
+    )
+
+    decision = strategy.evaluate(primary, confirm)
+
+    assert decision.action == DecisionAction.SKIP
+    assert "extended" in decision.rationale.lower()
