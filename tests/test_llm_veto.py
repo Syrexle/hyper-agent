@@ -1,6 +1,13 @@
 import pytest
 
-from near_agent.llm_veto import DisabledVetoProvider, OpenAiVetoProvider, VetoError
+from near_agent.config import Settings
+from near_agent.llm_veto import (
+    DisabledVetoProvider,
+    OpenAiCompatibleChatClient,
+    OpenAiVetoProvider,
+    VetoError,
+    build_veto_provider,
+)
 from near_agent.models import Decision, DecisionAction
 
 
@@ -56,3 +63,14 @@ def test_provider_error_blocks_when_required():
 
     with pytest.raises(VetoError):
         OpenAiVetoProvider(BrokenClient(), required=True).review(decision())
+
+
+def test_builds_venice_provider_from_settings():
+    settings = Settings(llm_provider="venice", venice_api_key="venice-key", venice_model="venice-model")
+
+    provider = build_veto_provider(settings)
+
+    assert isinstance(provider.client, OpenAiCompatibleChatClient)
+    assert provider.client.api_key == "venice-key"
+    assert provider.client.base_url == "https://api.venice.ai/api/v1"
+    assert provider.client.model == "venice-model"

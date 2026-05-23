@@ -16,8 +16,12 @@ class Settings(BaseSettings):
     hyperliquid_private_key: str | None = Field(default=None, alias="HYPERLIQUID_PRIVATE_KEY")
     hyperliquid_account_address: str | None = Field(default=None, alias="HYPERLIQUID_ACCOUNT_ADDRESS")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
     llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")
     llm_required: bool = Field(default=False, alias="LLM_REQUIRED")
+    venice_api_key: str | None = Field(default=None, alias="VENICE_API_KEY")
+    venice_base_url: str = Field(default="https://api.venice.ai/api/v1", alias="VENICE_BASE_URL")
+    venice_model: str = Field(default="llama-3.3-70b", alias="VENICE_MODEL")
     confirm_first_n_trades: int = Field(default=5, alias="CONFIRM_FIRST_N_TRADES")
     fixed_notional_usd: Decimal = Field(default=Decimal("10"), alias="FIXED_NOTIONAL_USD")
     max_leverage: Decimal = Field(default=Decimal("2"), alias="MAX_LEVERAGE")
@@ -37,6 +41,13 @@ class Settings(BaseSettings):
             raise ValueError("MAX_LEVERAGE must be greater than zero")
         if self.confirm_first_n_trades < 0:
             raise ValueError("CONFIRM_FIRST_N_TRADES must be zero or greater")
+        if self.llm_provider not in {"openai", "venice", "disabled"}:
+            raise ValueError("LLM_PROVIDER must be openai, venice, or disabled")
+        if self.llm_required:
+            if self.llm_provider == "openai" and not self.openai_api_key:
+                raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai and LLM_REQUIRED=true")
+            if self.llm_provider == "venice" and not self.venice_api_key:
+                raise ValueError("VENICE_API_KEY is required when LLM_PROVIDER=venice and LLM_REQUIRED=true")
         if self.live_trading:
             missing = []
             if not self.hyperliquid_private_key:

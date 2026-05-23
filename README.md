@@ -31,6 +31,19 @@ HYPERLIQUID_ACCOUNT_ADDRESS=<wallet-address>
 
 Never commit `.env`. The repository `.gitignore` excludes it.
 
+## LLM Veto Provider
+
+The veto layer supports OpenAI-compatible chat APIs. To use VeniceAI instead of OpenAI:
+
+```bash
+LLM_PROVIDER=venice
+VENICE_API_KEY=<your-venice-api-key>
+VENICE_BASE_URL=https://api.venice.ai/api/v1
+VENICE_MODEL=llama-3.3-70b
+```
+
+Venice documents its chat completions endpoint as OpenAI-compatible at `https://api.venice.ai/api/v1/chat/completions`.
+
 ## Data Sources
 
 The design uses the configured RootAI Edge MCP server for public market/context data:
