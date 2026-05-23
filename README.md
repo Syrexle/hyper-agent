@@ -49,8 +49,10 @@ uv run near-agent backtest
 Backtest output reports both gross and net return. Net return subtracts configured fee,
 slippage, and funding assumptions.
 
-Live-submitted trades are written to the local SQLite trade journal with entry context
-that can be used later for model training. Export it as CSV with:
+Live-submitted trades are written to the local SQLite trade journal with entry
+context and close metrics that can be used later for model training. On close,
+the journal records exit price, realized PnL, exit reason, highest PnL, and max
+drawdown. Export it as CSV with:
 
 ```bash
 uv run near-agent export-journal > trade_journal.csv

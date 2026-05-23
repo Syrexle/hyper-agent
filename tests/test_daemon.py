@@ -4,10 +4,11 @@ from near_agent.config import Settings
 from near_agent.daemon import TradingDaemon
 from near_agent.executor import DryRunExecutor, ExecutionResult, LiveExecutionGate
 from near_agent.llm_veto import VetoResult
-from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeStatus
+from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeJournalEntry, TradeStatus
 from near_agent.risk import RiskEngine
 from near_agent.sizing import PositionSizing
 from near_agent.state import StateStore
+from near_agent.trailing import PositionControls
 
 
 class StaticAccountData:
@@ -87,6 +88,67 @@ def test_existing_position_is_closed_automatically_when_management_rule_triggers
 
     assert result == "closed_existing_position"
     assert executor.closed_positions == [("NEAR-USDC", "end_of_day_flatten")]
+
+
+def test_close_existing_position_updates_live_trade_journal(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    store.upsert_trade(
+        Trade(
+            trade_id="trade-1",
+            symbol="NEAR-USDC",
+            side=Side.LONG,
+            status=TradeStatus.OPEN,
+            notional_usd=10,
+            entry_px=2.0,
+        )
+    )
+    store.record_trade_journal_entry(
+        TradeJournalEntry(
+            trade_id="trade-1",
+            submitted_live=True,
+            symbol="NEAR-USDC",
+            side=Side.LONG,
+            entry_px=2.0,
+            notional_usd=10,
+            leverage=10,
+            size_base=5,
+            stop_loss_px=1.9,
+            take_profit_px=2.3,
+            atr_pct=1.2,
+            rationale="multi-timeframe ema long",
+            min_atr_pct=0.75,
+            min_ema_spread_pct=0.35,
+            max_extension_pct=8,
+        )
+    )
+    store.upsert_position_controls(
+        PositionControls(
+            symbol="NEAR-USDC",
+            side=Side.LONG,
+            entry_px=2.0,
+            initial_stop_px=1.9,
+            highest_pnl_pct=8,
+            max_drawdown_pct=-2.5,
+        )
+    )
+    daemon = TradingDaemon(
+        settings=Settings(),
+        state=store,
+        account_data=StaticAccountData(None),
+        executor=DryRunExecutor(store),
+        entry_price_provider=lambda: 2.1,
+    )
+
+    result = daemon.close_existing_position("manual_close")
+
+    assert result == "closed_existing_position"
+    journal = store.list_trade_journal_entries()[0]
+    assert journal.exit_px == 2.1
+    assert journal.realized_pnl_usd == 0.5
+    assert journal.realized_pnl_pct == 5.0
+    assert journal.exit_reason == "manual_close"
+    assert journal.highest_pnl_pct == 8
+    assert journal.max_drawdown_pct == -2.5
 
 
 def test_ambiguous_position_blocks_new_entries(tmp_path):

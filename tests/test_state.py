@@ -90,6 +90,7 @@ def test_persists_position_controls_for_trailing_stops(tmp_path):
         initial_stop_px=1.94,
         trailing_stop_px=2.03,
         highest_pnl_pct=2.5,
+        max_drawdown_pct=-1.25,
     )
 
     store.upsert_position_controls(controls)
@@ -122,3 +123,55 @@ def test_records_trade_journal_entry_for_model_training(tmp_path):
 
     loaded = store.list_trade_journal_entries()
     assert loaded == [entry]
+
+
+def test_updates_open_trade_journal_entry_on_close(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    store.upsert_trade(
+        Trade(
+            trade_id="trade-1",
+            symbol="NEAR-USDC",
+            side=Side.LONG,
+            status=TradeStatus.OPEN,
+            notional_usd=10,
+            entry_px=2.0,
+        )
+    )
+    store.record_trade_journal_entry(
+        TradeJournalEntry(
+            trade_id="trade-1",
+            submitted_live=True,
+            symbol="NEAR-USDC",
+            side=Side.LONG,
+            entry_px=2.0,
+            notional_usd=10,
+            leverage=10,
+            size_base=5,
+            stop_loss_px=1.9,
+            take_profit_px=2.3,
+            atr_pct=1.2,
+            rationale="multi-timeframe ema long",
+            min_atr_pct=0.75,
+            min_ema_spread_pct=0.35,
+            max_extension_pct=8,
+        )
+    )
+
+    updated = store.close_open_trade_journal_entry(
+        symbol="NEAR-USDC",
+        exit_px=2.1,
+        exit_reason="trailing stop",
+        highest_pnl_pct=7.5,
+        max_drawdown_pct=-1.5,
+    )
+
+    assert updated is not None
+    assert updated.realized_pnl_usd == 0.5
+    assert updated.realized_pnl_pct == 5.0
+    assert updated.exit_reason == "trailing stop"
+    assert updated.highest_pnl_pct == 7.5
+    assert updated.max_drawdown_pct == -1.5
+    trade = store.get_trade("trade-1")
+    assert trade is not None
+    assert trade.status == TradeStatus.CLOSED
+    assert trade.realized_pnl_usd == 0.5

@@ -11,6 +11,7 @@ class PositionControls:
     initial_stop_px: float
     trailing_stop_px: float | None = None
     highest_pnl_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
 
     def current_pnl_pct(self, mark_px: float) -> float:
         if self.side == Side.LONG:
@@ -27,6 +28,8 @@ class TrailingStopManager:
         pnl_pct = controls.current_pnl_pct(mark_px)
         if pnl_pct > controls.highest_pnl_pct:
             controls.highest_pnl_pct = round(pnl_pct, 8)
+        if pnl_pct < controls.max_drawdown_pct:
+            controls.max_drawdown_pct = round(pnl_pct, 8)
         if pnl_pct < self.start_pct:
             return None
 

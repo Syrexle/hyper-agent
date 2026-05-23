@@ -69,7 +69,8 @@ class StateStore:
                     entry_px REAL NOT NULL,
                     initial_stop_px REAL NOT NULL,
                     trailing_stop_px REAL,
-                    highest_pnl_pct REAL NOT NULL DEFAULT 0
+                    highest_pnl_pct REAL NOT NULL DEFAULT 0,
+                    max_drawdown_pct REAL NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS trade_journal (
@@ -98,6 +99,12 @@ class StateStore:
                 );
                 """
             )
+            existing_columns = {
+                row["name"]
+                for row in con.execute("PRAGMA table_info(position_controls)").fetchall()
+            }
+            if "max_drawdown_pct" not in existing_columns:
+                con.execute("ALTER TABLE position_controls ADD COLUMN max_drawdown_pct REAL NOT NULL DEFAULT 0")
 
     def table_names(self) -> set[str]:
         with self._connect() as con:
@@ -242,15 +249,16 @@ class StateStore:
             con.execute(
                 """
                 INSERT INTO position_controls (
-                    symbol, side, entry_px, initial_stop_px, trailing_stop_px, highest_pnl_pct
+                    symbol, side, entry_px, initial_stop_px, trailing_stop_px, highest_pnl_pct, max_drawdown_pct
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol) DO UPDATE SET
                     side = excluded.side,
                     entry_px = excluded.entry_px,
                     initial_stop_px = excluded.initial_stop_px,
                     trailing_stop_px = excluded.trailing_stop_px,
-                    highest_pnl_pct = excluded.highest_pnl_pct
+                    highest_pnl_pct = excluded.highest_pnl_pct,
+                    max_drawdown_pct = excluded.max_drawdown_pct
                 """,
                 (
                     controls.symbol,
@@ -259,6 +267,7 @@ class StateStore:
                     controls.initial_stop_px,
                     controls.trailing_stop_px,
                     controls.highest_pnl_pct,
+                    controls.max_drawdown_pct,
                 ),
             )
 
@@ -266,7 +275,7 @@ class StateStore:
         with self._connect() as con:
             row = con.execute(
                 """
-                SELECT symbol, side, entry_px, initial_stop_px, trailing_stop_px, highest_pnl_pct
+                SELECT symbol, side, entry_px, initial_stop_px, trailing_stop_px, highest_pnl_pct, max_drawdown_pct
                 FROM position_controls
                 WHERE symbol = ?
                 """,
@@ -281,6 +290,7 @@ class StateStore:
             initial_stop_px=row["initial_stop_px"],
             trailing_stop_px=row["trailing_stop_px"],
             highest_pnl_pct=row["highest_pnl_pct"],
+            max_drawdown_pct=row["max_drawdown_pct"],
         )
 
     def clear_position_controls(self, symbol: str) -> None:
@@ -386,3 +396,105 @@ class StateStore:
             )
             for row in rows
         ]
+
+    def close_open_trade_journal_entry(
+        self,
+        *,
+        symbol: str,
+        exit_px: float,
+        exit_reason: str,
+        highest_pnl_pct: float | None = None,
+        max_drawdown_pct: float | None = None,
+    ) -> TradeJournalEntry | None:
+        open_entry = self._latest_open_trade_journal_entry(symbol)
+        if open_entry is None:
+            return None
+
+        if open_entry.side == Side.LONG:
+            realized_pnl_usd = open_entry.size_base * (exit_px - open_entry.entry_px)
+        else:
+            realized_pnl_usd = open_entry.size_base * (open_entry.entry_px - exit_px)
+        realized_pnl_pct = realized_pnl_usd / open_entry.notional_usd * 100 if open_entry.notional_usd else 0.0
+
+        updated = TradeJournalEntry(
+            trade_id=open_entry.trade_id,
+            created_ts=open_entry.created_ts,
+            submitted_live=open_entry.submitted_live,
+            symbol=open_entry.symbol,
+            side=open_entry.side,
+            entry_px=open_entry.entry_px,
+            notional_usd=open_entry.notional_usd,
+            leverage=open_entry.leverage,
+            size_base=open_entry.size_base,
+            stop_loss_px=open_entry.stop_loss_px,
+            take_profit_px=open_entry.take_profit_px,
+            atr_pct=open_entry.atr_pct,
+            rationale=open_entry.rationale,
+            min_atr_pct=open_entry.min_atr_pct,
+            min_ema_spread_pct=open_entry.min_ema_spread_pct,
+            max_extension_pct=open_entry.max_extension_pct,
+            exit_px=exit_px,
+            realized_pnl_usd=round(realized_pnl_usd, 8),
+            realized_pnl_pct=round(realized_pnl_pct, 8),
+            exit_reason=exit_reason,
+            highest_pnl_pct=highest_pnl_pct,
+            max_drawdown_pct=max_drawdown_pct,
+        )
+        self.record_trade_journal_entry(updated)
+        self.upsert_trade(
+            Trade(
+                trade_id=updated.trade_id,
+                created_ts=updated.created_ts,
+                symbol=updated.symbol,
+                side=updated.side,
+                status=TradeStatus.CLOSED,
+                notional_usd=updated.notional_usd,
+                entry_px=updated.entry_px,
+                realized_pnl_usd=updated.realized_pnl_usd,
+            )
+        )
+        return updated
+
+    def _latest_open_trade_journal_entry(self, symbol: str) -> TradeJournalEntry | None:
+        with self._connect() as con:
+            row = con.execute(
+                """
+                SELECT
+                    trade_id, created_ts, submitted_live, symbol, side, entry_px, notional_usd,
+                    leverage, size_base, stop_loss_px, take_profit_px, atr_pct, rationale,
+                    min_atr_pct, min_ema_spread_pct, max_extension_pct, exit_px,
+                    realized_pnl_usd, realized_pnl_pct, exit_reason, highest_pnl_pct,
+                    max_drawdown_pct
+                FROM trade_journal
+                WHERE symbol = ? AND exit_px IS NULL
+                ORDER BY created_ts DESC, trade_id DESC
+                LIMIT 1
+                """,
+                (symbol,),
+            ).fetchone()
+        if row is None:
+            return None
+        return TradeJournalEntry(
+            trade_id=row["trade_id"],
+            created_ts=row["created_ts"],
+            submitted_live=bool(row["submitted_live"]),
+            symbol=row["symbol"],
+            side=Side(row["side"]),
+            entry_px=row["entry_px"],
+            notional_usd=row["notional_usd"],
+            leverage=row["leverage"],
+            size_base=row["size_base"],
+            stop_loss_px=row["stop_loss_px"],
+            take_profit_px=row["take_profit_px"],
+            atr_pct=row["atr_pct"],
+            rationale=row["rationale"],
+            min_atr_pct=row["min_atr_pct"],
+            min_ema_spread_pct=row["min_ema_spread_pct"],
+            max_extension_pct=row["max_extension_pct"],
+            exit_px=row["exit_px"],
+            realized_pnl_usd=row["realized_pnl_usd"],
+            realized_pnl_pct=row["realized_pnl_pct"],
+            exit_reason=row["exit_reason"],
+            highest_pnl_pct=row["highest_pnl_pct"],
+            max_drawdown_pct=row["max_drawdown_pct"],
+        )

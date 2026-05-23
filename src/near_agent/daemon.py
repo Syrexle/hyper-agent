@@ -204,7 +204,17 @@ class TradingDaemon:
         )
 
     def close_existing_position(self, reason: str) -> str:
+        controls = self.state.get_position_controls(self.settings.symbol)
+        exit_px = self.entry_price_provider() if self.entry_price_provider else None
         self.executor.close_position(self.settings.symbol, reason)
+        if exit_px is not None and exit_px > 0:
+            self.state.close_open_trade_journal_entry(
+                symbol=self.settings.symbol,
+                exit_px=exit_px,
+                exit_reason=reason,
+                highest_pnl_pct=controls.highest_pnl_pct if controls else None,
+                max_drawdown_pct=controls.max_drawdown_pct if controls else None,
+            )
         self.state.clear_position_controls(self.settings.symbol)
         return "closed_existing_position"
 
