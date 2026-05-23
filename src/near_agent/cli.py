@@ -32,7 +32,7 @@ def init(path: Path = typer.Option(Path("."), help="Directory to initialize")) -
                     "OPENAI_MODEL=gpt-4o-mini",
                     "CONFIRM_FIRST_N_TRADES=5",
                     "FIXED_NOTIONAL_USD=10",
-                    "MAX_LEVERAGE=2",
+                    "MAX_LEVERAGE=10",
                     "LOCAL_TIMEZONE=America/New_York",
                     "END_OF_DAY_FLATTEN_TIME=23:30",
                     "ROOTAI_MCP_URL=https://mcp.rootai.wtf/mcp",

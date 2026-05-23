@@ -33,8 +33,8 @@ class RiskEngine:
             reasons.append("Candidate symbol must be exactly NEAR-USDC")
         if decision.action == DecisionAction.SKIP:
             reasons.append("Skip decisions are not eligible for order placement")
-        if self.settings.max_leverage > Decimal("2"):
-            reasons.append("Bot effective leverage must be at or below 2x")
+        if self.settings.max_leverage > Decimal("10"):
+            reasons.append("Bot effective leverage must be at or below 10x")
         if self.settings.fixed_notional_usd <= 0:
             reasons.append("Fixed notional must be greater than zero")
         if existing_position and existing_position.symbol == "NEAR-USDC":

@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     venice_model: str = Field(default="llama-3.3-70b", alias="VENICE_MODEL")
     confirm_first_n_trades: int = Field(default=5, alias="CONFIRM_FIRST_N_TRADES")
     fixed_notional_usd: Decimal = Field(default=Decimal("10"), alias="FIXED_NOTIONAL_USD")
-    max_leverage: Decimal = Field(default=Decimal("2"), alias="MAX_LEVERAGE")
+    max_leverage: Decimal = Field(default=Decimal("10"), alias="MAX_LEVERAGE")
     local_timezone: str = Field(default="America/New_York", alias="LOCAL_TIMEZONE")
     end_of_day_flatten_time: str = Field(default="23:30", alias="END_OF_DAY_FLATTEN_TIME")
     rootai_mcp_url: str = Field(default="https://mcp.rootai.wtf/mcp", alias="ROOTAI_MCP_URL")
@@ -46,8 +46,8 @@ class Settings(BaseSettings):
             raise ValueError("SYMBOL must be NEAR-USDC")
         if self.fixed_notional_usd <= 0:
             raise ValueError("FIXED_NOTIONAL_USD must be greater than zero")
-        if self.max_leverage > Decimal("2"):
-            raise ValueError("MAX_LEVERAGE must be at or below 2")
+        if self.max_leverage > Decimal("10"):
+            raise ValueError("MAX_LEVERAGE must be at or below 10")
         if self.max_leverage <= 0:
             raise ValueError("MAX_LEVERAGE must be greater than zero")
         if self.confirm_first_n_trades < 0:

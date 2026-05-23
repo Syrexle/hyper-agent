@@ -13,7 +13,7 @@ def test_defaults_are_safe_for_dry_run():
     assert settings.live_trading is False
     assert settings.symbol == "NEAR-USDC"
     assert settings.fixed_notional_usd == 10
-    assert settings.max_leverage == 2
+    assert settings.max_leverage == 10
     assert settings.confirm_first_n_trades == 5
     assert settings.rootai_mcp_url == "https://mcp.rootai.wtf/mcp"
     assert settings.venice_base_url == "https://api.venice.ai/api/v1"
@@ -39,8 +39,8 @@ def test_live_mode_accepts_required_secrets():
     settings.validate_for_startup()
 
 
-def test_rejects_effective_leverage_above_two():
-    settings = make_settings(max_leverage=3)
+def test_rejects_effective_leverage_above_ten():
+    settings = make_settings(max_leverage=11)
 
     with pytest.raises(ValueError, match="MAX_LEVERAGE"):
         settings.validate_for_startup()

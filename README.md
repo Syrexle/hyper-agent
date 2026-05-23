@@ -7,7 +7,7 @@ Python CLI daemon scaffold for a live-capable `NEAR-USDC` Hyperliquid perp tradi
 - Trades only `NEAR-USDC`.
 - Starts with `LIVE_TRADING=false`.
 - Uses fixed 10 USD notional by default.
-- Caps bot effective leverage at 2x even though Hyperliquid reports NEAR max leverage as 10x.
+- Caps bot effective leverage at 10x for NEAR-USDC.
 - Requires confirmation for the first 5 live trades.
 - Stops opening new trades after one bot-managed loss in a day.
 - Detects existing `NEAR-USDC` positions through the account data adapter and switches to management mode.

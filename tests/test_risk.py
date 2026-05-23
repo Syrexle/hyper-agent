@@ -62,9 +62,9 @@ def test_blocks_after_daily_loss(tmp_path):
     assert "loss" in result.reasons[0]
 
 
-def test_blocks_effective_leverage_above_two(tmp_path):
+def test_blocks_effective_leverage_above_ten(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
-    settings = Settings(max_leverage=Decimal("2.5"))
+    settings = Settings(max_leverage=Decimal("10.5"))
     engine = RiskEngine(settings, store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
