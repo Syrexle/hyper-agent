@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     end_of_day_flatten_time: str = Field(default="23:30", alias="END_OF_DAY_FLATTEN_TIME")
     rootai_mcp_url: str = Field(default="https://mcp.rootai.wtf/mcp", alias="ROOTAI_MCP_URL")
     symbol: str = Field(default="NEAR-USDC", alias="SYMBOL")
+    primary_timeframe: str = Field(default="1h", alias="PRIMARY_TIMEFRAME")
+    confirm_timeframe: str = Field(default="4h", alias="CONFIRM_TIMEFRAME")
+    ema_fast: int = Field(default=9, alias="EMA_FAST")
+    ema_slow: int = Field(default=21, alias="EMA_SLOW")
+    atr_period: int = Field(default=14, alias="ATR_PERIOD")
+    volatility_target_pct: Decimal = Field(default=Decimal("2"), alias="VOLATILITY_TARGET_PCT")
+    trailing_start_pct: Decimal = Field(default=Decimal("1"), alias="TRAILING_START_PCT")
+    trailing_distance_pct: Decimal = Field(default=Decimal("0.5"), alias="TRAILING_DISTANCE_PCT")
+    initial_stop_pct: Decimal = Field(default=Decimal("2"), alias="INITIAL_STOP_PCT")
+    backtest_days: int = Field(default=90, alias="BACKTEST_DAYS")
+    discord_webhook_url: str | None = Field(default=None, alias="DISCORD_WEBHOOK_URL")
 
     def validate_for_startup(self) -> None:
         if self.symbol != "NEAR-USDC":
@@ -41,6 +52,19 @@ class Settings(BaseSettings):
             raise ValueError("MAX_LEVERAGE must be greater than zero")
         if self.confirm_first_n_trades < 0:
             raise ValueError("CONFIRM_FIRST_N_TRADES must be zero or greater")
+        supported_timeframes = {"1m", "3m", "5m", "15m", "30m", "1h", "4h", "8h", "12h", "1d"}
+        if self.primary_timeframe not in supported_timeframes:
+            raise ValueError("PRIMARY_TIMEFRAME is unsupported")
+        if self.confirm_timeframe not in supported_timeframes:
+            raise ValueError("CONFIRM_TIMEFRAME is unsupported")
+        if self.ema_fast <= 0 or self.ema_slow <= 0 or self.ema_fast >= self.ema_slow:
+            raise ValueError("EMA_FAST must be greater than zero and less than EMA_SLOW")
+        if self.atr_period <= 1:
+            raise ValueError("ATR_PERIOD must be greater than one")
+        if self.trailing_start_pct < 0 or self.trailing_distance_pct <= 0 or self.initial_stop_pct <= 0:
+            raise ValueError("Trailing and initial stop percentages must be positive")
+        if self.backtest_days <= 0:
+            raise ValueError("BACKTEST_DAYS must be greater than zero")
         if self.llm_provider not in {"openai", "venice", "disabled"}:
             raise ValueError("LLM_PROVIDER must be openai, venice, or disabled")
         if self.llm_required:

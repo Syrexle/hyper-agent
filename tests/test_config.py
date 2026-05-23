@@ -17,6 +17,9 @@ def test_defaults_are_safe_for_dry_run():
     assert settings.confirm_first_n_trades == 5
     assert settings.rootai_mcp_url == "https://mcp.rootai.wtf/mcp"
     assert settings.venice_base_url == "https://api.venice.ai/api/v1"
+    assert settings.primary_timeframe == "1h"
+    assert settings.confirm_timeframe == "4h"
+    assert settings.trailing_start_pct == 1
 
 
 def test_live_mode_requires_private_key_and_account_address():
@@ -68,3 +71,10 @@ def test_venice_provider_accepts_api_key():
     settings = make_settings(llm_provider="venice", llm_required=True, venice_api_key="venice-key")
 
     settings.validate_for_startup()
+
+
+def test_rejects_unsupported_timeframes():
+    settings = make_settings(primary_timeframe="2h")
+
+    with pytest.raises(ValueError, match="PRIMARY_TIMEFRAME"):
+        settings.validate_for_startup()

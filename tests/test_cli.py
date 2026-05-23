@@ -43,3 +43,10 @@ def test_daemon_can_run_one_offline_cycle(tmp_path):
 
     assert result.exit_code == 0
     assert "cycle 1: no_candidate_provider" in result.output
+
+
+def test_backtest_can_run_offline_without_network(tmp_path):
+    result = runner.invoke(app, ["backtest", "--offline", "--db", str(tmp_path / "agent.sqlite")])
+
+    assert result.exit_code == 0
+    assert "offline backtest requires market data" in result.output

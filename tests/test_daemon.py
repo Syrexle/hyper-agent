@@ -6,6 +6,7 @@ from near_agent.executor import DryRunExecutor, LiveExecutionGate
 from near_agent.llm_veto import VetoResult
 from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, TradeStatus
 from near_agent.risk import RiskEngine
+from near_agent.sizing import PositionSizing
 from near_agent.state import StateStore
 
 
@@ -140,6 +141,12 @@ def test_opens_dry_run_trade_after_strategy_risk_and_veto_pass(tmp_path):
         risk_engine=RiskEngine(Settings(), store),
         veto_provider=AllowingVeto(),
         entry_price_provider=lambda: 2.3,
+        sizing_provider=lambda price: PositionSizing(
+            notional_usd=Settings().fixed_notional_usd,
+            leverage=Settings().max_leverage,
+            size_base=4.34782609,
+            atr_pct=1.2,
+        ),
     )
 
     result = daemon.run_once(today=date(2026, 5, 22))
@@ -149,6 +156,56 @@ def test_opens_dry_run_trade_after_strategy_risk_and_veto_pass(tmp_path):
     assert executor.opened_plans[0].symbol == "NEAR-USDC"
     assert executor.opened_plans[0].side == Side.LONG
     assert executor.opened_plans[0].notional_usd == Settings().fixed_notional_usd
+    controls = store.get_position_controls("NEAR-USDC")
+    assert controls is not None
+    assert controls.initial_stop_px == 2.1
+
+
+class CapturingNotifier:
+    def __init__(self):
+        self.events = []
+
+    def signal(self, action, *, symbol, price):
+        self.events.append(("signal", action, symbol, price))
+
+    def entry(self, side, *, symbol, size_base, price, leverage):
+        self.events.append(("entry", side, symbol, size_base, price, leverage))
+
+    def exit(self, *, symbol, exit_price, reason, pnl_pct):
+        self.events.append(("exit", symbol, exit_price, reason, pnl_pct))
+
+    def error(self, message):
+        self.events.append(("error", message))
+
+
+def test_notifier_receives_signal_and_entry_after_trade_opens(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    notifier = CapturingNotifier()
+    decision = Decision(
+        symbol="NEAR-USDC",
+        action=DecisionAction.LONG,
+        allowed=True,
+        rationale="trend continuation",
+        stop_loss_px=2.1,
+        take_profit_px=2.6,
+    )
+    daemon = TradingDaemon(
+        settings=Settings(),
+        state=store,
+        account_data=StaticAccountData(position=None),
+        executor=CapturingExecutor(store),
+        candidate_provider=lambda: decision,
+        risk_engine=RiskEngine(Settings(), store),
+        veto_provider=AllowingVeto(),
+        entry_price_provider=lambda: 2.3,
+        sizing_provider=lambda price: PositionSizing(Settings().fixed_notional_usd, Settings().max_leverage, 4.34, 1.2),
+        notifier=notifier,
+    )
+
+    daemon.run_once(today=date(2026, 5, 22))
+
+    assert notifier.events[0] == ("signal", DecisionAction.LONG, "NEAR-USDC", 2.3)
+    assert notifier.events[1][0] == "entry"
 
 
 def test_live_trade_requires_confirmation_during_initial_confirmation_window(tmp_path):

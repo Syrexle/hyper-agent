@@ -15,6 +15,8 @@ def test_dry_run_executor_records_order_without_live_submit(tmp_path):
         entry_px=2.2,
         stop_loss_px=2.0,
         take_profit_px=2.6,
+        leverage=2,
+        size_base=4.54545455,
     )
 
     result = executor.open_position(plan)
@@ -56,6 +58,8 @@ def test_live_executor_delegates_market_open_to_hyperliquid_sdk(tmp_path):
         entry_px=2.5,
         stop_loss_px=2.2,
         take_profit_px=3.0,
+        leverage=2,
+        size_base=4.0,
     )
 
     result = executor.open_position(plan)

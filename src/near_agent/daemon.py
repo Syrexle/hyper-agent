@@ -7,7 +7,9 @@ from near_agent.executor import DryRunExecutor, ExecutionPlan, LiveExecutionGate
 from near_agent.llm_veto import DisabledVetoProvider
 from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeStatus
 from near_agent.risk import RiskEngine
+from near_agent.sizing import PositionSizing
 from near_agent.state import StateStore
+from near_agent.trailing import PositionControls
 
 
 class AccountData(Protocol):
@@ -28,6 +30,17 @@ class VetoProvider(Protocol):
         ...
 
 
+class Notifier(Protocol):
+    def signal(self, action: DecisionAction, *, symbol: str, price: float) -> None:
+        ...
+
+    def entry(self, side: Side, *, symbol: str, size_base: float, price: float, leverage) -> None:
+        ...
+
+    def exit(self, *, symbol: str, exit_price: float, reason: str, pnl_pct: float) -> None:
+        ...
+
+
 class TradingDaemon:
     def __init__(
         self,
@@ -43,6 +56,8 @@ class TradingDaemon:
         confirm_callback: Callable[[Decision], bool] | None = None,
         entry_price_provider: Callable[[], float] | None = None,
         position_exit_reason_provider: Callable[[PositionSnapshot], str | None] | None = None,
+        sizing_provider: Callable[[float], PositionSizing] | None = None,
+        notifier: Notifier | None = None,
     ):
         self.settings = settings
         self.state = state
@@ -55,6 +70,8 @@ class TradingDaemon:
         self.confirm_callback = confirm_callback
         self.entry_price_provider = entry_price_provider
         self.position_exit_reason_provider = position_exit_reason_provider
+        self.sizing_provider = sizing_provider
+        self.notifier = notifier
 
     def run_once(self, *, today: date, account_state_ok: bool = True) -> str:
         if not account_state_ok:
@@ -66,6 +83,14 @@ class TradingDaemon:
             if self.position_exit_reason_provider:
                 reason = self.position_exit_reason_provider(position)
                 if reason:
+                    exit_px = self.entry_price_provider() if self.entry_price_provider else position.entry_px
+                    if self.notifier:
+                        self.notifier.exit(
+                            symbol=position.symbol,
+                            exit_price=exit_px,
+                            reason=reason,
+                            pnl_pct=_position_pnl_pct(position, exit_px),
+                        )
                     return self.close_existing_position(reason)
             return "managed_existing_position"
 
@@ -101,22 +126,49 @@ class TradingDaemon:
             self.state.record_decision(_blocked_decision(decision, "entry price unavailable"))
             return "entry_price_unavailable"
 
+        sizing = self.sizing_provider(entry_px) if self.sizing_provider else PositionSizing(
+            notional_usd=risk.notional_usd,
+            leverage=risk.max_leverage,
+            size_base=round(float(risk.notional_usd) / entry_px, 8),
+            atr_pct=0.0,
+        )
+
         self.state.record_decision(decision)
         if self.settings.live_trading and self.confirmation_gate and self.confirmation_gate.requires_confirmation():
             self.state.record_confirmation(trade_id)
+        if self.notifier:
+            self.notifier.signal(decision.action, symbol=decision.symbol, price=entry_px)
         result = self.executor.open_position(
             ExecutionPlan(
                 trade_id=trade_id,
                 symbol=decision.symbol,
                 side=Side.LONG if decision.action == DecisionAction.LONG else Side.SHORT,
                 action=decision.action,
-                notional_usd=risk.notional_usd,
+                notional_usd=sizing.notional_usd,
                 entry_px=entry_px,
                 stop_loss_px=decision.stop_loss_px or 0,
                 take_profit_px=decision.take_profit_px or 0,
+                leverage=sizing.leverage,
+                size_base=sizing.size_base,
+            )
+        )
+        self.state.upsert_position_controls(
+            PositionControls(
+                symbol=decision.symbol,
+                side=Side.LONG if decision.action == DecisionAction.LONG else Side.SHORT,
+                entry_px=entry_px,
+                initial_stop_px=decision.stop_loss_px or 0,
             )
         )
         self.state.mark_trade_opened(today)
+        if self.notifier:
+            self.notifier.entry(
+                Side.LONG if decision.action == DecisionAction.LONG else Side.SHORT,
+                symbol=decision.symbol,
+                size_base=sizing.size_base,
+                price=entry_px,
+                leverage=sizing.leverage,
+            )
         return "opened_live_position" if result.submitted else "opened_dry_run_position"
 
     def _adopt_existing_position(self, position: PositionSnapshot) -> None:
@@ -133,6 +185,7 @@ class TradingDaemon:
 
     def close_existing_position(self, reason: str) -> str:
         self.executor.close_position(self.settings.symbol, reason)
+        self.state.clear_position_controls(self.settings.symbol)
         return "closed_existing_position"
 
 
@@ -145,3 +198,11 @@ def _blocked_decision(decision: Decision, reason: str) -> Decision:
         stop_loss_px=decision.stop_loss_px,
         take_profit_px=decision.take_profit_px,
     )
+
+
+def _position_pnl_pct(position: PositionSnapshot, mark_px: float) -> float:
+    if position.entry_px <= 0:
+        return 0.0
+    if position.side == Side.LONG:
+        return (mark_px - position.entry_px) / position.entry_px * 100
+    return (position.entry_px - mark_px) / position.entry_px * 100

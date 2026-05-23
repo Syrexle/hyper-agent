@@ -15,6 +15,8 @@ class ExecutionPlan:
     entry_px: float
     stop_loss_px: float
     take_profit_px: float
+    leverage: Decimal | float = Decimal("1")
+    size_base: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +76,7 @@ class HyperliquidLiveExecutor:
     def open_position(self, plan: ExecutionPlan) -> ExecutionResult:
         coin = _to_hyperliquid_coin(plan.symbol)
         is_buy = plan.side == Side.LONG
-        size = round(float(plan.notional_usd) / plan.entry_px, self.size_decimals)
+        size = round(plan.size_base if plan.size_base is not None else float(plan.notional_usd) / plan.entry_px, self.size_decimals)
         self.sdk_client.market_open(coin, is_buy=is_buy, sz=size, slippage=self.slippage)
         self.state.upsert_trade(
             Trade(

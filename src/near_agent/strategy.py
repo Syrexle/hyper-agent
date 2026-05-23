@@ -31,6 +31,100 @@ def calculate_atr(candles: list[Candle], period: int = 14) -> float:
     return round(sum(selected) / len(selected), 8)
 
 
+def ema_values(values: list[float], period: int) -> list[float]:
+    if period <= 0:
+        raise ValueError("EMA period must be positive")
+    if not values:
+        return []
+    alpha = 2 / (period + 1)
+    result = [float(values[0])]
+    for value in values[1:]:
+        result.append(result[-1] + alpha * (float(value) - result[-1]))
+    return [round(value, 8) for value in result]
+
+
+class MultiTimeframeEmaStrategy:
+    def __init__(
+        self,
+        *,
+        symbol: str = "NEAR-USDC",
+        ema_fast: int = 9,
+        ema_slow: int = 21,
+        atr_period: int = 14,
+        initial_stop_pct: float = 2.0,
+    ):
+        if ema_fast >= ema_slow:
+            raise ValueError("ema_fast must be less than ema_slow")
+        self.symbol = symbol
+        self.ema_fast = ema_fast
+        self.ema_slow = ema_slow
+        self.atr_period = atr_period
+        self.initial_stop_pct = initial_stop_pct
+
+    def evaluate(self, primary: list[Candle], confirm: list[Candle]) -> Decision:
+        minimum = self.ema_slow + 2
+        if len(primary) < minimum or len(confirm) < minimum:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.SKIP,
+                allowed=False,
+                rationale="Insufficient candle history for multi-timeframe EMA signal",
+            )
+
+        primary_signal = self._crossover_signal(primary)
+        confirm_trend = self._trend(confirm)
+        if primary_signal == DecisionAction.LONG and confirm_trend == DecisionAction.LONG:
+            return self._decision(primary, DecisionAction.LONG)
+        if primary_signal == DecisionAction.SHORT and confirm_trend == DecisionAction.SHORT:
+            return self._decision(primary, DecisionAction.SHORT)
+        return Decision(
+            symbol=self.symbol,
+            action=DecisionAction.SKIP,
+            allowed=False,
+            rationale="No NEAR setup: multi-timeframe EMA signals are not aligned",
+        )
+
+    def _crossover_signal(self, candles: list[Candle]) -> DecisionAction:
+        closes = [c.close for c in candles]
+        fast = ema_values(closes, self.ema_fast)
+        slow = ema_values(closes, self.ema_slow)
+        start = max(1, len(closes) - 4)
+        for idx in range(start, len(closes)):
+            was_bullish = fast[idx - 1] > slow[idx - 1]
+            is_bullish = fast[idx] > slow[idx]
+            if not was_bullish and is_bullish:
+                return DecisionAction.LONG
+            if was_bullish and not is_bullish:
+                return DecisionAction.SHORT
+        return DecisionAction.SKIP
+
+    def _trend(self, candles: list[Candle]) -> DecisionAction:
+        closes = [c.close for c in candles]
+        fast = ema_values(closes, self.ema_fast)
+        slow = ema_values(closes, self.ema_slow)
+        return DecisionAction.LONG if fast[-1] > slow[-1] else DecisionAction.SHORT
+
+    def _decision(self, candles: list[Candle], action: DecisionAction) -> Decision:
+        last = candles[-1]
+        atr = calculate_atr(candles, self.atr_period)
+        stop_distance = max(atr * 1.5, last.close * self.initial_stop_pct / 100)
+        target_distance = max(atr * 2.25, last.close * self.initial_stop_pct * 1.5 / 100)
+        if action == DecisionAction.LONG:
+            stop = last.close - stop_distance
+            target = last.close + target_distance
+        else:
+            stop = last.close + stop_distance
+            target = last.close - target_distance
+        return Decision(
+            symbol=self.symbol,
+            action=action,
+            allowed=True,
+            rationale=f"Multi-timeframe EMA {action.value}: primary crossover confirmed by higher timeframe trend",
+            stop_loss_px=round(stop, 6),
+            take_profit_px=round(target, 6),
+        )
+
+
 class NearStrategy:
     def __init__(self, symbol: str = "NEAR-USDC"):
         self.symbol = symbol

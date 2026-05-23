@@ -2,6 +2,7 @@ from datetime import date
 
 from near_agent.models import Decision, DecisionAction, Side, Trade, TradeStatus
 from near_agent.state import StateStore
+from near_agent.trailing import PositionControls
 
 
 def test_initializes_required_tables(tmp_path):
@@ -78,3 +79,20 @@ def test_records_open_and_closed_trade(tmp_path):
     assert loaded is not None
     assert loaded.status == TradeStatus.CLOSED
     assert loaded.realized_pnl_usd == -0.25
+
+
+def test_persists_position_controls_for_trailing_stops(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    controls = PositionControls(
+        symbol="NEAR-USDC",
+        side=Side.LONG,
+        entry_px=2.0,
+        initial_stop_px=1.94,
+        trailing_stop_px=2.03,
+        highest_pnl_pct=2.5,
+    )
+
+    store.upsert_position_controls(controls)
+
+    loaded = store.get_position_controls("NEAR-USDC")
+    assert loaded == controls

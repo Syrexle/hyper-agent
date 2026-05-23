@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from near_agent.models import Decision, DecisionAction, Side, Trade, TradeStatus
+from near_agent.trailing import PositionControls
 
 
 class StateStore:
@@ -60,6 +61,15 @@ class StateStore:
                 CREATE TABLE IF NOT EXISTS confirmations (
                     trade_id TEXT PRIMARY KEY,
                     confirmed_ts REAL NOT NULL DEFAULT (strftime('%s', 'now'))
+                );
+
+                CREATE TABLE IF NOT EXISTS position_controls (
+                    symbol TEXT PRIMARY KEY,
+                    side TEXT NOT NULL,
+                    entry_px REAL NOT NULL,
+                    initial_stop_px REAL NOT NULL,
+                    trailing_stop_px REAL,
+                    highest_pnl_pct REAL NOT NULL DEFAULT 0
                 );
                 """
             )
@@ -201,3 +211,53 @@ class StateStore:
             entry_px=row["entry_px"],
             realized_pnl_usd=row["realized_pnl_usd"],
         )
+
+    def upsert_position_controls(self, controls: PositionControls) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO position_controls (
+                    symbol, side, entry_px, initial_stop_px, trailing_stop_px, highest_pnl_pct
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    side = excluded.side,
+                    entry_px = excluded.entry_px,
+                    initial_stop_px = excluded.initial_stop_px,
+                    trailing_stop_px = excluded.trailing_stop_px,
+                    highest_pnl_pct = excluded.highest_pnl_pct
+                """,
+                (
+                    controls.symbol,
+                    controls.side.value,
+                    controls.entry_px,
+                    controls.initial_stop_px,
+                    controls.trailing_stop_px,
+                    controls.highest_pnl_pct,
+                ),
+            )
+
+    def get_position_controls(self, symbol: str) -> PositionControls | None:
+        with self._connect() as con:
+            row = con.execute(
+                """
+                SELECT symbol, side, entry_px, initial_stop_px, trailing_stop_px, highest_pnl_pct
+                FROM position_controls
+                WHERE symbol = ?
+                """,
+                (symbol,),
+            ).fetchone()
+        if row is None:
+            return None
+        return PositionControls(
+            symbol=row["symbol"],
+            side=Side(row["side"]),
+            entry_px=row["entry_px"],
+            initial_stop_px=row["initial_stop_px"],
+            trailing_stop_px=row["trailing_stop_px"],
+            highest_pnl_pct=row["highest_pnl_pct"],
+        )
+
+    def clear_position_controls(self, symbol: str) -> None:
+        with self._connect() as con:
+            con.execute("DELETE FROM position_controls WHERE symbol = ?", (symbol,))
