@@ -11,6 +11,7 @@ Python CLI daemon scaffold for a live-capable `NEAR-USDC` Hyperliquid perp tradi
 - Requires confirmation for the first 5 live trades.
 - Stops opening new trades after one bot-managed loss in a day.
 - Detects existing `NEAR-USDC` positions through the account data adapter and switches to management mode.
+- Flattens managed existing positions after `END_OF_DAY_FLATTEN_TIME`.
 
 ## Setup
 
@@ -20,6 +21,20 @@ uv run near-agent init
 uv run near-agent check
 uv run near-agent once
 ```
+
+For a no-network smoke check:
+
+```bash
+uv run near-agent once --offline
+```
+
+To run the daemon loop:
+
+```bash
+uv run near-agent daemon --interval-seconds 300
+```
+
+Use `--cycles 1` during setup when you want one bounded daemon cycle.
 
 For live trading, create a local `.env` from `.env.example` and provide:
 
@@ -56,4 +71,4 @@ Private account state and live order placement belong behind the Hyperliquid SDK
 
 ## Current State
 
-This build includes the tested config, state, strategy, risk, market-data adapter shape, LLM veto contract, dry-run executor, and CLI scaffold. The live Hyperliquid executor interface is intentionally isolated so SDK signing/order placement can be wired and tested separately.
+This build includes the tested config, state, strategy, risk, RootAI MCP HTTP client, LLM veto contract, dry-run executor, live Hyperliquid executor adapter, one-shot CLI runtime, and daemon loop. `LIVE_TRADING=false` records dry-run trades only; `LIVE_TRADING=true` requires Hyperliquid live dependencies, wallet settings, and confirmation while the initial confirmation window is active.

@@ -28,8 +28,18 @@ def test_status_shows_confirmation_count(tmp_path):
     assert "confirmations: 0" in result.output
 
 
-def test_once_runs_without_live_secrets_in_dry_run(tmp_path):
-    result = runner.invoke(app, ["once", "--db", str(tmp_path / "agent.sqlite")])
+def test_once_can_run_offline_without_live_secrets(tmp_path):
+    result = runner.invoke(app, ["once", "--offline", "--db", str(tmp_path / "agent.sqlite")])
 
     assert result.exit_code == 0
     assert "no_candidate_provider" in result.output
+
+
+def test_daemon_can_run_one_offline_cycle(tmp_path):
+    result = runner.invoke(
+        app,
+        ["daemon", "--offline", "--cycles", "1", "--interval-seconds", "0", "--db", str(tmp_path / "agent.sqlite")],
+    )
+
+    assert result.exit_code == 0
+    assert "cycle 1: no_candidate_provider" in result.output

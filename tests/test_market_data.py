@@ -3,6 +3,7 @@ import pytest
 from near_agent.market_data import (
     HyperliquidAccountData,
     MarketDataUnavailable,
+    RootAiHttpMcpClient,
     RootAiMcpMarketData,
     normalize_hyperliquid_symbol,
 )
@@ -31,6 +32,34 @@ class FakeMcpClient:
         raise AssertionError(name)
 
 
+class FakeHttpResponse:
+    def __init__(self, *, text, headers=None):
+        self.text = text
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        return None
+
+
+class FakeHttpClient:
+    def __init__(self):
+        self.posts = []
+
+    def post(self, url, *, json, headers):
+        self.posts.append((url, json, headers))
+        if json["method"] == "initialize":
+            return FakeHttpResponse(
+                text='event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26"}}\n\n',
+                headers={"mcp-session-id": "session-1"},
+            )
+        return FakeHttpResponse(
+            text=(
+                'event: message\ndata: {"jsonrpc":"2.0","id":2,"result":'
+                '{"structuredContent":{"NEAR":"2.25"}}}\n\n'
+            )
+        )
+
+
 def test_normalizes_hyperliquid_near_symbol():
     assert normalize_hyperliquid_symbol("NEAR") == "NEAR-USDC"
     assert normalize_hyperliquid_symbol("NEAR-USDC") == "NEAR-USDC"
@@ -41,6 +70,18 @@ def test_fetches_near_mid_from_rootai_mcp():
 
     assert adapter.mid("NEAR-USDC") == 2.25
     assert adapter.client.calls[0] == ("hyperliquid_mids", {"include_spot": False})
+
+
+def test_http_mcp_client_initializes_session_and_parses_sse_structured_content():
+    http = FakeHttpClient()
+    client = RootAiHttpMcpClient("https://mcp.rootai.wtf/mcp", http_client=http)
+
+    result = client.call_tool("hyperliquid_mids", {"include_spot": False})
+
+    assert result == {"NEAR": "2.25"}
+    assert http.posts[0][1]["method"] == "initialize"
+    assert http.posts[1][1]["method"] == "tools/call"
+    assert http.posts[1][2]["Mcp-Session-Id"] == "session-1"
 
 
 def test_fetches_near_candles_from_rootai_mcp():
