@@ -1,14 +1,14 @@
 from datetime import date
 
-from near_agent.config import Settings
-from near_agent.daemon import TradingDaemon
-from near_agent.executor import DryRunExecutor, ExecutionResult, LiveExecutionGate
-from near_agent.llm_veto import VetoResult
-from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeJournalEntry, TradeStatus
-from near_agent.risk import RiskEngine
-from near_agent.sizing import PositionSizing
-from near_agent.state import StateStore
-from near_agent.trailing import PositionControls
+from hyper_agent.config import Settings
+from hyper_agent.daemon import TradingDaemon
+from hyper_agent.executor import DryRunExecutor, ExecutionResult, LiveExecutionGate
+from hyper_agent.llm_veto import VetoResult
+from hyper_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeJournalEntry, TradeStatus
+from hyper_agent.risk import RiskEngine
+from hyper_agent.sizing import PositionSizing
+from hyper_agent.state import StateStore
+from hyper_agent.trailing import PositionControls
 
 
 class StaticAccountData:
@@ -136,7 +136,7 @@ def test_close_existing_position_updates_live_trade_journal(tmp_path):
         state=store,
         account_data=StaticAccountData(None),
         executor=DryRunExecutor(store),
-        entry_price_provider=lambda: 2.1,
+        entry_price_provider=lambda symbol: 2.1,
     )
 
     result = daemon.close_existing_position("manual_close")
@@ -225,7 +225,7 @@ def test_opens_dry_run_trade_after_strategy_risk_and_veto_pass(tmp_path):
         candidate_provider=lambda: decision,
         risk_engine=RiskEngine(settings, store),
         veto_provider=AllowingVeto(),
-        entry_price_provider=lambda: 2.3,
+        entry_price_provider=lambda symbol: 2.3,
         sizing_provider=lambda price: PositionSizing(
                 notional_usd=settings.fixed_notional_usd,
                 leverage=settings.max_leverage,
@@ -282,7 +282,7 @@ def test_notifier_receives_signal_and_entry_after_trade_opens(tmp_path):
         candidate_provider=lambda: decision,
         risk_engine=RiskEngine(Settings(_env_file=None), store),
         veto_provider=AllowingVeto(),
-        entry_price_provider=lambda: 2.3,
+        entry_price_provider=lambda symbol: 2.3,
         sizing_provider=lambda price: PositionSizing(
             Settings(_env_file=None).fixed_notional_usd,
             Settings(_env_file=None).max_leverage,
@@ -322,7 +322,7 @@ def test_live_submitted_trade_records_journal_entry(tmp_path):
         candidate_provider=lambda: decision,
         risk_engine=RiskEngine(settings, store),
         veto_provider=AllowingVeto(),
-        entry_price_provider=lambda: 2.3,
+        entry_price_provider=lambda symbol: 2.3,
         sizing_provider=lambda price: PositionSizing(settings.fixed_notional_usd, settings.max_leverage, 4.34, 1.2),
     )
 
@@ -360,7 +360,7 @@ def test_rejected_live_order_is_not_marked_open_or_journaled(tmp_path):
         candidate_provider=lambda: decision,
         risk_engine=RiskEngine(settings, store),
         veto_provider=AllowingVeto(),
-        entry_price_provider=lambda: 2.0,
+        entry_price_provider=lambda symbol: 2.0,
         sizing_provider=lambda price: PositionSizing(1, 10, 0.5, 1.2),
     )
 
@@ -392,7 +392,7 @@ def test_live_trade_requires_confirmation_during_initial_confirmation_window(tmp
         veto_provider=AllowingVeto(),
         confirmation_gate=LiveExecutionGate(store, confirm_first_n=5),
         confirm_callback=lambda decision: False,
-        entry_price_provider=lambda: 2.4,
+        entry_price_provider=lambda symbol: 2.4,
     )
 
     result = daemon.run_once(today=date(2026, 5, 22))

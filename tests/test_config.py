@@ -1,6 +1,6 @@
 import pytest
 
-from near_agent.config import Settings
+from hyper_agent.config import Settings
 
 
 def make_settings(**overrides):
@@ -19,7 +19,7 @@ def test_defaults_are_safe_for_dry_run():
     assert settings.venice_base_url == "https://api.venice.ai/api/v1"
     assert settings.primary_timeframe == "1h"
     assert settings.confirm_timeframe == "4h"
-    assert settings.trailing_start_pct == 1
+    assert settings.trailing_start_pct == 8
     assert settings.backtest_fee_bps > 0
     assert settings.min_atr_pct > 0
     assert settings.min_ema_spread_pct > 0

@@ -4,8 +4,8 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from near_agent.models import Decision, DecisionAction, Side, Trade, TradeJournalEntry, TradeStatus
-from near_agent.trailing import PositionControls
+from hyper_agent.models import Decision, DecisionAction, Side, Trade, TradeJournalEntry, TradeStatus
+from hyper_agent.trailing import PositionControls
 
 
 class StateStore:
@@ -55,7 +55,8 @@ class StateStore:
                 CREATE TABLE IF NOT EXISTS daily_state (
                     trade_date TEXT PRIMARY KEY,
                     trade_opened INTEGER NOT NULL DEFAULT 0,
-                    loss_realized INTEGER NOT NULL DEFAULT 0
+                    loss_realized INTEGER NOT NULL DEFAULT 0,
+                    wins_count INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS confirmations (
@@ -161,18 +162,29 @@ class StateStore:
     def mark_loss(self, trade_date: date) -> None:
         self._upsert_daily_state(trade_date, loss_realized=True)
 
-    def has_trade_on(self, trade_date: date) -> bool:
-        row = self._daily_row(trade_date)
-        return bool(row and row["trade_opened"])
+    def mark_win(self, trade_date: date) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO daily_state (trade_date, wins_count)
+                VALUES (?, 1)
+                ON CONFLICT(trade_date) DO UPDATE SET wins_count = wins_count + 1
+                """,
+                (trade_date.isoformat(),),
+            )
 
     def has_loss_on(self, trade_date: date) -> bool:
         row = self._daily_row(trade_date)
         return bool(row and row["loss_realized"])
 
+    def daily_win_count(self, trade_date: date) -> int:
+        row = self._daily_row(trade_date)
+        return int(row["wins_count"]) if row else 0
+
     def _daily_row(self, trade_date: date) -> sqlite3.Row | None:
         with self._connect() as con:
             return con.execute(
-                "SELECT trade_opened, loss_realized FROM daily_state WHERE trade_date = ?",
+                "SELECT trade_opened, loss_realized, wins_count FROM daily_state WHERE trade_date = ?",
                 (trade_date.isoformat(),),
             ).fetchone()
 

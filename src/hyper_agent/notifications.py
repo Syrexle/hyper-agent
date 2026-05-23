@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from near_agent.models import DecisionAction, Side
+from hyper_agent.models import DecisionAction, Side
 
 
 class DiscordNotifier:

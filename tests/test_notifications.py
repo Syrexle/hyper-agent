@@ -1,5 +1,5 @@
-from near_agent.models import DecisionAction, Side
-from near_agent.notifications import DiscordNotifier
+from hyper_agent.models import DecisionAction, Side
+from hyper_agent.notifications import DiscordNotifier
 
 
 class FakeHttpClient:

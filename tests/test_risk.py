@@ -1,10 +1,10 @@
 from datetime import date
 from decimal import Decimal
 
-from near_agent.config import Settings
-from near_agent.models import Decision, DecisionAction, Side, PositionSnapshot
-from near_agent.risk import RiskEngine
-from near_agent.state import StateStore
+from hyper_agent.config import Settings
+from hyper_agent.models import Decision, DecisionAction, Side, PositionSnapshot
+from hyper_agent.risk import RiskEngine
+from hyper_agent.state import StateStore
 
 
 def long_decision():

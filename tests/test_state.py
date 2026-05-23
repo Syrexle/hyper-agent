@@ -1,8 +1,8 @@
 from datetime import date
 
-from near_agent.models import Decision, DecisionAction, Side, Trade, TradeJournalEntry, TradeStatus
-from near_agent.state import StateStore
-from near_agent.trailing import PositionControls
+from hyper_agent.models import Decision, DecisionAction, Side, Trade, TradeJournalEntry, TradeStatus
+from hyper_agent.state import StateStore
+from hyper_agent.trailing import PositionControls
 
 
 def test_initializes_required_tables(tmp_path):

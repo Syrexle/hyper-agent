@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-from near_agent.config import Settings
-from near_agent.models import Decision, DecisionAction, PositionSnapshot
-from near_agent.state import StateStore
+from hyper_agent.config import Settings
+from hyper_agent.models import Decision, DecisionAction, PositionSnapshot
+from hyper_agent.state import StateStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,20 +29,20 @@ class RiskEngine:
     ) -> RiskResult:
         reasons: list[str] = []
 
-        if decision.symbol != "NEAR-USDC":
-            reasons.append("Candidate symbol must be exactly NEAR-USDC")
+        if decision.symbol not in self.settings.symbols:
+            reasons.append(f"Candidate symbol {decision.symbol} is not in the tracked symbol list")
         if decision.action == DecisionAction.SKIP:
             reasons.append("Skip decisions are not eligible for order placement")
         if self.settings.max_leverage > Decimal("10"):
             reasons.append("Bot effective leverage must be at or below 10x")
         if self.settings.fixed_notional_usd <= 0:
             reasons.append("Fixed notional must be greater than zero")
-        if existing_position and existing_position.symbol == "NEAR-USDC":
-            reasons.append("Existing NEAR-USDC position found; switch into position-management mode")
-        if self.state.has_trade_on(today):
-            reasons.append("A bot trade has already been opened today")
+        if existing_position and existing_position.symbol == decision.symbol:
+            reasons.append(f"Existing {decision.symbol} position found; switch into position-management mode")
         if self.state.has_loss_on(today):
-            reasons.append("A realized bot-managed loss has already occurred today")
+            reasons.append("Loss occurred today — no new positions until tomorrow")
+        if self.state.daily_win_count(today) >= 3:
+            reasons.append("3 winning trades today — daily cap reached")
         if decision.stop_loss_px is None or decision.take_profit_px is None:
             reasons.append("Candidate must include stop-loss and take-profit prices")
 

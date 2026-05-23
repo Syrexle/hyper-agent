@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from near_agent.models import Side
+from hyper_agent.models import Side
 
 
 @dataclass(slots=True)

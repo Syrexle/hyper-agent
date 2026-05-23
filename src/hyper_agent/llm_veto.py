@@ -2,8 +2,8 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
-from near_agent.config import Settings
-from near_agent.models import Decision
+from hyper_agent.config import Settings
+from hyper_agent.models import Decision
 
 
 class VetoError(RuntimeError):

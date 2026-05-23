@@ -1,6 +1,6 @@
 from typer.testing import CliRunner
 
-from near_agent.cli import app
+from hyper_agent.cli import app
 
 
 runner = CliRunner()

@@ -1,5 +1,5 @@
 [project]
-name = "near-hyperliquid-agent"
+name = "hyper-agent-pkg"
 version = "0.1.0"
 description = "NEAR-USDC Hyperliquid intraday swing trading daemon"
 requires-python = ">=3.11"
@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "typer>=0.12",
     "httpx>=0.27",
+    "textual>=0.70",
 ]
 
 [project.optional-dependencies]
@@ -21,7 +22,7 @@ live = [
 ]
 
 [project.scripts]
-near-agent = "near_agent.cli:app"
+hyper-agent = "hyper_agent.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -32,4 +33,4 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/near_agent"]
+packages = ["src/hyper_agent"]

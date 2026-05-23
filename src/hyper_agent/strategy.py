@@ -1,6 +1,7 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
-from near_agent.models import Decision, DecisionAction
+from hyper_agent.models import Decision, DecisionAction
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,4 +229,158 @@ class NearStrategy:
             action=DecisionAction.SKIP,
             allowed=False,
             rationale="No NEAR setup: trend and mean-reversion filters are not aligned",
+        )
+
+
+def calculate_rsi(candles: list[Candle], period: int = 14) -> list[float]:
+    closes = [c.close for c in candles]
+    if len(closes) < period + 2:
+        return []
+    deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    gains = [max(d, 0.0) for d in deltas]
+    losses = [max(-d, 0.0) for d in deltas]
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    result = []
+    for i in range(period, len(deltas)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        rs = avg_gain / avg_loss if avg_loss > 0 else float("inf")
+        rsi = 100.0 if avg_loss == 0 else round(100 - (100 / (1 + rs)), 4)
+        result.append(rsi)
+    return result
+
+
+class RsiExtremeStrategy:
+    def __init__(
+        self,
+        *,
+        symbol: str = "NEAR-USDC",
+        period: int = 14,
+        overbought: float = 70.0,
+        oversold: float = 30.0,
+        initial_stop_pct: float = 5.0,
+    ):
+        self.symbol = symbol
+        self.period = period
+        self.overbought = overbought
+        self.oversold = oversold
+        self.initial_stop_pct = initial_stop_pct
+
+    def evaluate(self, primary: list[Candle], confirm: list[Candle]) -> Decision:
+        rsi = calculate_rsi(primary, self.period)
+        if len(rsi) < 2:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.SKIP,
+                allowed=False,
+                rationale="RSI extreme: insufficient candle history",
+            )
+        prev_rsi, curr_rsi = rsi[-2], rsi[-1]
+        last = primary[-1]
+        atr = calculate_atr(primary, self.period)
+        stop_distance = max(atr * 1.5, last.close * self.initial_stop_pct / 100)
+        if curr_rsi > self.overbought:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.SHORT,
+                allowed=True,
+                rationale=f"RSI extreme short: RSI {curr_rsi:.1f} above overbought {self.overbought}",
+                stop_loss_px=round(last.close + stop_distance, 6),
+                take_profit_px=round(last.close - stop_distance * 1.5, 6),
+            )
+        if curr_rsi < self.oversold:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.LONG,
+                allowed=True,
+                rationale=f"RSI extreme long: RSI {curr_rsi:.1f} below oversold {self.oversold}",
+                stop_loss_px=round(last.close - stop_distance, 6),
+                take_profit_px=round(last.close + stop_distance * 1.5, 6),
+            )
+        return Decision(
+            symbol=self.symbol,
+            action=DecisionAction.SKIP,
+            allowed=False,
+            rationale=f"RSI extreme: neutral (RSI {curr_rsi:.1f})",
+        )
+
+
+class FundingRateSentimentStrategy:
+    def __init__(
+        self,
+        *,
+        symbol: str = "NEAR-USDC",
+        funding_provider: Callable[[], float],
+        threshold: float = 0.001,
+        initial_stop_pct: float = 5.0,
+    ):
+        self.symbol = symbol
+        self.funding_provider = funding_provider
+        self.threshold = threshold
+        self.initial_stop_pct = initial_stop_pct
+
+    def evaluate(self, primary: list[Candle], confirm: list[Candle]) -> Decision:
+        try:
+            rate = self.funding_provider()
+        except Exception:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.SKIP,
+                allowed=False,
+                rationale="Funding rate sentiment: data unavailable",
+            )
+        if not primary:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.SKIP,
+                allowed=False,
+                rationale="Funding rate sentiment: no candle data for stop calculation",
+            )
+        last = primary[-1]
+        atr = calculate_atr(primary, 14)
+        stop_distance = max(atr * 1.5, last.close * self.initial_stop_pct / 100)
+        if rate > self.threshold:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.SHORT,
+                allowed=True,
+                rationale=f"Funding rate sentiment short: rate {rate:.4%} above threshold {self.threshold:.4%} (market overleveraged long)",
+                stop_loss_px=round(last.close + stop_distance, 6),
+                take_profit_px=round(last.close - stop_distance * 1.5, 6),
+            )
+        if rate < -self.threshold:
+            return Decision(
+                symbol=self.symbol,
+                action=DecisionAction.LONG,
+                allowed=True,
+                rationale=f"Funding rate sentiment long: rate {rate:.4%} below -{self.threshold:.4%} (market overleveraged short)",
+                stop_loss_px=round(last.close - stop_distance, 6),
+                take_profit_px=round(last.close + stop_distance * 1.5, 6),
+            )
+        return Decision(
+            symbol=self.symbol,
+            action=DecisionAction.SKIP,
+            allowed=False,
+            rationale=f"Funding rate sentiment: neutral (rate {rate:.4%})",
+        )
+
+
+class CompositeStrategy:
+    def __init__(self, strategies: list, *, symbol: str = "NEAR-USDC"):
+        self.strategies = strategies
+        self.symbol = symbol
+
+    def evaluate(self, primary: list[Candle], confirm: list[Candle]) -> Decision:
+        skips = []
+        for strategy in self.strategies:
+            decision = strategy.evaluate(primary, confirm)
+            if decision.action != DecisionAction.SKIP:
+                return decision
+            skips.append(decision.rationale)
+        return Decision(
+            symbol=self.symbol,
+            action=DecisionAction.SKIP,
+            allowed=False,
+            rationale=" | ".join(skips),
         )

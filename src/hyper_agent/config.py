@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import Field
+from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     llm_required: bool = Field(default=False, alias="LLM_REQUIRED")
     venice_api_key: str | None = Field(default=None, alias="VENICE_API_KEY")
     venice_base_url: str = Field(default="https://api.venice.ai/api/v1", alias="VENICE_BASE_URL")
-    venice_model: str = Field(default="llama-3.3-70b", alias="VENICE_MODEL")
+    venice_model: str = Field(default="deepseek-v4-flash", alias="VENICE_MODEL")
+    venice_sweep_model: str = Field(default="qwen3-235b-a22b-thinking-2507", alias="VENICE_SWEEP_MODEL")
     confirm_first_n_trades: int = Field(default=5, alias="CONFIRM_FIRST_N_TRADES")
     fixed_notional_usd: Decimal = Field(default=Decimal("10"), alias="FIXED_NOTIONAL_USD")
     max_leverage: Decimal = Field(default=Decimal("10"), alias="MAX_LEVERAGE")
@@ -29,15 +30,31 @@ class Settings(BaseSettings):
     end_of_day_flatten_time: str = Field(default="23:30", alias="END_OF_DAY_FLATTEN_TIME")
     rootai_mcp_url: str = Field(default="https://mcp.rootai.wtf/mcp", alias="ROOTAI_MCP_URL")
     symbol: str = Field(default="NEAR-USDC", alias="SYMBOL")
+    symbols_raw: str = Field(
+        default=(
+            "BTC-USDC,ETH-USDC,SOL-USDC,XRP-USDC,DOGE-USDC,"
+            "BNB-USDC,AVAX-USDC,SUI-USDC,LINK-USDC,HYPE-USDC,"
+            "ARB-USDC,INJ-USDC,APT-USDC,TON-USDC,WIF-USDC,"
+            "kPEPE-USDC,kBONK-USDC,TAO-USDC,ENA-USDC,JUP-USDC,"
+            "TIA-USDC,OP-USDC,ADA-USDC,TRX-USDC,NEAR-USDC"
+        ),
+        alias="SYMBOLS",
+    )
+
+    @computed_field
+    @property
+    def symbols(self) -> list[str]:
+        return [s.strip() for s in self.symbols_raw.split(",") if s.strip()]
+
     primary_timeframe: str = Field(default="1h", alias="PRIMARY_TIMEFRAME")
     confirm_timeframe: str = Field(default="4h", alias="CONFIRM_TIMEFRAME")
     ema_fast: int = Field(default=9, alias="EMA_FAST")
     ema_slow: int = Field(default=21, alias="EMA_SLOW")
     atr_period: int = Field(default=14, alias="ATR_PERIOD")
     volatility_target_pct: Decimal = Field(default=Decimal("2"), alias="VOLATILITY_TARGET_PCT")
-    trailing_start_pct: Decimal = Field(default=Decimal("1"), alias="TRAILING_START_PCT")
+    trailing_start_pct: Decimal = Field(default=Decimal("8"), alias="TRAILING_START_PCT")
     trailing_distance_pct: Decimal = Field(default=Decimal("0.5"), alias="TRAILING_DISTANCE_PCT")
-    initial_stop_pct: Decimal = Field(default=Decimal("2"), alias="INITIAL_STOP_PCT")
+    initial_stop_pct: Decimal = Field(default=Decimal("5"), alias="INITIAL_STOP_PCT")
     backtest_days: int = Field(default=90, alias="BACKTEST_DAYS")
     backtest_fee_bps: Decimal = Field(default=Decimal("5"), alias="BACKTEST_FEE_BPS")
     backtest_slippage_bps: Decimal = Field(default=Decimal("10"), alias="BACKTEST_SLIPPAGE_BPS")
@@ -46,10 +63,14 @@ class Settings(BaseSettings):
     min_ema_spread_pct: Decimal = Field(default=Decimal("0.35"), alias="MIN_EMA_SPREAD_PCT")
     max_extension_pct: Decimal = Field(default=Decimal("8"), alias="MAX_EXTENSION_PCT")
     discord_webhook_url: str | None = Field(default=None, alias="DISCORD_WEBHOOK_URL")
+    rsi_period: int = Field(default=14, alias="RSI_PERIOD")
+    rsi_overbought: Decimal = Field(default=Decimal("70"), alias="RSI_OVERBOUGHT")
+    rsi_oversold: Decimal = Field(default=Decimal("30"), alias="RSI_OVERSOLD")
+    funding_rate_threshold: Decimal = Field(default=Decimal("0.001"), alias="FUNDING_RATE_THRESHOLD")
 
     def validate_for_startup(self) -> None:
-        if self.symbol != "NEAR-USDC":
-            raise ValueError("SYMBOL must be NEAR-USDC")
+        if not self.symbols:
+            raise ValueError("SYMBOLS must contain at least one symbol")
         if self.fixed_notional_usd <= 0:
             raise ValueError("FIXED_NOTIONAL_USD must be greater than zero")
         if self.max_leverage > Decimal("10"):
@@ -90,6 +111,12 @@ class Settings(BaseSettings):
                 raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai and LLM_REQUIRED=true")
             if self.llm_provider == "venice" and not self.venice_api_key:
                 raise ValueError("VENICE_API_KEY is required when LLM_PROVIDER=venice and LLM_REQUIRED=true")
+        if self.rsi_period <= 1:
+            raise ValueError("RSI_PERIOD must be greater than one")
+        if not (0 < self.rsi_oversold < self.rsi_overbought < 100):
+            raise ValueError("RSI_OVERSOLD must be less than RSI_OVERBOUGHT, both between 0 and 100")
+        if self.funding_rate_threshold <= 0:
+            raise ValueError("FUNDING_RATE_THRESHOLD must be greater than zero")
         if self.live_trading:
             missing = []
             if not self.hyperliquid_private_key:

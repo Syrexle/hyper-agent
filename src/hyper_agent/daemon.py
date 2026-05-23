@@ -2,14 +2,14 @@ from collections.abc import Callable
 from datetime import date
 from typing import Protocol
 
-from near_agent.config import Settings
-from near_agent.executor import DryRunExecutor, ExecutionPlan, LiveExecutionGate
-from near_agent.llm_veto import DisabledVetoProvider
-from near_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeJournalEntry, TradeStatus
-from near_agent.risk import RiskEngine
-from near_agent.sizing import PositionSizing
-from near_agent.state import StateStore
-from near_agent.trailing import PositionControls
+from hyper_agent.config import Settings
+from hyper_agent.executor import DryRunExecutor, ExecutionPlan, LiveExecutionGate
+from hyper_agent.llm_veto import DisabledVetoProvider
+from hyper_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeJournalEntry, TradeStatus
+from hyper_agent.risk import RiskEngine
+from hyper_agent.sizing import PositionSizing
+from hyper_agent.state import StateStore
+from hyper_agent.trailing import PositionControls
 
 
 class AccountData(Protocol):
@@ -54,7 +54,7 @@ class TradingDaemon:
         veto_provider: VetoProvider | None = None,
         confirmation_gate: LiveExecutionGate | None = None,
         confirm_callback: Callable[[Decision], bool] | None = None,
-        entry_price_provider: Callable[[], float] | None = None,
+        entry_price_provider: Callable[[str], float] | None = None,
         position_exit_reason_provider: Callable[[PositionSnapshot], str | None] | None = None,
         sizing_provider: Callable[[float], PositionSizing] | None = None,
         notifier: Notifier | None = None,
@@ -77,13 +77,17 @@ class TradingDaemon:
         if not account_state_ok:
             return "account_state_unavailable"
 
-        position = self.account_data.existing_position(self.settings.symbol)
+        position = None
+        for sym in self.settings.symbols:
+            position = self.account_data.existing_position(sym)
+            if position is not None:
+                break
         if position is not None:
             self._adopt_existing_position(position)
             if self.position_exit_reason_provider:
                 reason = self.position_exit_reason_provider(position)
                 if reason:
-                    exit_px = self.entry_price_provider() if self.entry_price_provider else position.entry_px
+                    exit_px = self.entry_price_provider(position.symbol) if self.entry_price_provider else position.entry_px
                     if self.notifier:
                         self.notifier.exit(
                             symbol=position.symbol,
@@ -91,7 +95,7 @@ class TradingDaemon:
                             reason=reason,
                             pnl_pct=_position_pnl_pct(position, exit_px),
                         )
-                    return self.close_existing_position(reason)
+                    return self.close_existing_position(reason, symbol=position.symbol)
             return "managed_existing_position"
 
         if self.candidate_provider is None:
@@ -120,8 +124,8 @@ class TradingDaemon:
             if self.confirm_callback is None or not self.confirm_callback(decision):
                 return "confirmation_required"
 
-        trade_id = f"{self.settings.symbol}-{today.isoformat()}"
-        entry_px = self.entry_price_provider() if self.entry_price_provider else 0
+        trade_id = f"{decision.symbol}-{today.isoformat()}"
+        entry_px = self.entry_price_provider(decision.symbol) if self.entry_price_provider else 0
         if entry_px <= 0:
             self.state.record_decision(_blocked_decision(decision, "entry price unavailable"))
             return "entry_price_unavailable"
@@ -153,7 +157,7 @@ class TradingDaemon:
             )
         )
         if self.settings.live_trading and not result.submitted:
-            return "live_order_rejected"
+            return f"live_order_rejected: {result.message}"
         if result.submitted:
             self.state.record_trade_journal_entry(
                 TradeJournalEntry(
@@ -205,19 +209,31 @@ class TradingDaemon:
             )
         )
 
-    def close_existing_position(self, reason: str) -> str:
-        controls = self.state.get_position_controls(self.settings.symbol)
-        exit_px = self.entry_price_provider() if self.entry_price_provider else None
-        self.executor.close_position(self.settings.symbol, reason)
-        if exit_px is not None and exit_px > 0:
+    def close_existing_position(self, reason: str, symbol: str | None = None) -> str:
+        import datetime as _dt
+        sym = symbol or self.settings.symbol
+        controls = self.state.get_position_controls(sym)
+        exit_px = self.entry_price_provider(sym) if self.entry_price_provider else None
+        self.executor.close_position(sym, reason)
+        today = _dt.date.today()
+        if exit_px is not None and exit_px > 0 and controls is not None:
             self.state.close_open_trade_journal_entry(
-                symbol=self.settings.symbol,
+                symbol=sym,
                 exit_px=exit_px,
                 exit_reason=reason,
-                highest_pnl_pct=controls.highest_pnl_pct if controls else None,
-                max_drawdown_pct=controls.max_drawdown_pct if controls else None,
+                highest_pnl_pct=controls.highest_pnl_pct,
+                max_drawdown_pct=controls.max_drawdown_pct,
             )
-        self.state.clear_position_controls(self.settings.symbol)
+            from hyper_agent.models import Side as _Side
+            is_win = (
+                (controls.side == _Side.LONG and exit_px > controls.entry_px)
+                or (controls.side == _Side.SHORT and exit_px < controls.entry_px)
+            )
+            if is_win:
+                self.state.mark_win(today)
+            else:
+                self.state.mark_loss(today)
+        self.state.clear_position_controls(sym)
         return "closed_existing_position"
 
 

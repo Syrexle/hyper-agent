@@ -1,6 +1,6 @@
-from near_agent.backtest import BacktestEngine
-from near_agent.config import Settings
-from near_agent.strategy import Candle, MultiTimeframeEmaStrategy
+from hyper_agent.backtest import BacktestEngine
+from hyper_agent.config import Settings
+from hyper_agent.strategy import Candle, MultiTimeframeEmaStrategy
 
 
 def candle(px):

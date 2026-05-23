@@ -1,6 +1,6 @@
-from near_agent.executor import DryRunExecutor, ExecutionPlan, HyperliquidLiveExecutor, LiveExecutionGate
-from near_agent.models import DecisionAction, Side
-from near_agent.state import StateStore
+from hyper_agent.executor import DryRunExecutor, ExecutionPlan, HyperliquidLiveExecutor, LiveExecutionGate
+from hyper_agent.models import DecisionAction, Side
+from hyper_agent.state import StateStore
 
 
 def test_dry_run_executor_records_order_without_live_submit(tmp_path):

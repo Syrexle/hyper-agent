@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from near_agent.models import DecisionAction, Side, Trade, TradeStatus
-from near_agent.state import StateStore
+from hyper_agent.models import DecisionAction, Side, Trade, TradeStatus
+from hyper_agent.state import StateStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,9 +74,14 @@ class HyperliquidLiveExecutor:
         self.size_decimals = size_decimals
 
     def open_position(self, plan: ExecutionPlan) -> ExecutionResult:
+        import math
         coin = _to_hyperliquid_coin(plan.symbol)
         is_buy = plan.side == Side.LONG
-        size = round(plan.size_base if plan.size_base is not None else float(plan.notional_usd) / plan.entry_px, self.size_decimals)
+        raw = plan.size_base if plan.size_base is not None else float(plan.notional_usd) / plan.entry_px
+        factor = 10 ** self.size_decimals
+        size = math.ceil(raw * factor) / factor
+
+        # Open market position
         response = self.sdk_client.market_open(coin, is_buy=is_buy, sz=size, slippage=self.slippage)
         rejection = _order_rejection_reason(response)
         if rejection:
@@ -85,6 +90,27 @@ class HyperliquidLiveExecutor:
                 submitted=False,
                 message=rejection,
             )
+
+        # Place native stop loss on the exchange
+        if plan.stop_loss_px and plan.stop_loss_px > 0:
+            try:
+                sl_px = round(plan.stop_loss_px, 6)
+                # Stop is opposite side to close the position
+                sl_response = self.sdk_client.order(
+                    coin,
+                    not is_buy,  # sell to close long, buy to close short
+                    size,
+                    sl_px,
+                    {"trigger": {"triggerPx": sl_px, "isMarket": True, "tpsl": "sl"}},
+                    reduce_only=True,
+                )
+                sl_rejection = _order_rejection_reason(sl_response)
+                if sl_rejection:
+                    # Non-fatal: position is open, just log the failure
+                    pass
+            except Exception:
+                pass  # Non-fatal — software stop still runs as backup
+
         self.state.upsert_trade(
             Trade(
                 trade_id=plan.trade_id,
@@ -111,9 +137,7 @@ class HyperliquidLiveExecutor:
 
 
 def _to_hyperliquid_coin(symbol: str) -> str:
-    if symbol == "NEAR-USDC":
-        return "NEAR"
-    raise ValueError(f"Unsupported live execution symbol: {symbol}")
+    return symbol.split("-")[0]
 
 
 def _order_rejection_reason(response) -> str | None:

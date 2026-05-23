@@ -1,5 +1,15 @@
-from near_agent.models import DecisionAction
-from near_agent.strategy import Candle, MultiTimeframeEmaStrategy, NearStrategy, calculate_atr, ema_values
+from hyper_agent.models import DecisionAction
+from hyper_agent.strategy import (
+    Candle,
+    CompositeStrategy,
+    FundingRateSentimentStrategy,
+    MultiTimeframeEmaStrategy,
+    NearStrategy,
+    RsiExtremeStrategy,
+    calculate_atr,
+    calculate_rsi,
+    ema_values,
+)
 
 
 def candle(open_px, high, low, close):
@@ -130,3 +140,139 @@ def test_multi_timeframe_ema_blocks_overextended_trend_entry():
 
     assert decision.action == DecisionAction.SKIP
     assert "extended" in decision.rationale.lower()
+
+
+# RSI tests
+
+def make_candles_with_closes(closes: list[float]) -> list[Candle]:
+    return [Candle(open=c, high=c + 0.05, low=c - 0.05, close=c, volume=1000) for c in closes]
+
+
+def test_calculate_rsi_returns_empty_for_insufficient_data():
+    assert calculate_rsi(make_candles_with_closes([1.0] * 10), period=14) == []
+
+
+def test_calculate_rsi_returns_100_when_no_losses():
+    # All prices rising — avg_loss stays 0, RSI should be 100
+    closes = [float(i) for i in range(1, 20)]
+    rsi = calculate_rsi(make_candles_with_closes(closes), period=14)
+    assert len(rsi) >= 1
+    assert all(r == 100.0 for r in rsi)
+
+
+def test_calculate_rsi_returns_0_when_no_gains():
+    closes = [float(20 - i) for i in range(20)]
+    rsi = calculate_rsi(make_candles_with_closes(closes), period=14)
+    assert len(rsi) >= 1
+    assert all(r == 0.0 for r in rsi)
+
+
+def test_rsi_extreme_skips_when_insufficient_data():
+    strategy = RsiExtremeStrategy(period=14)
+    candles = make_candles_with_closes([2.0] * 10)
+    decision = strategy.evaluate(candles, [])
+    assert decision.action == DecisionAction.SKIP
+    assert "insufficient" in decision.rationale.lower()
+
+
+def test_rsi_extreme_signals_short_on_overbought_cross():
+    # 16 rising candles push RSI to 100; a large drop crosses it below 70
+    closes = [1.0 + i * 0.15 for i in range(16)]
+    closes.append(closes[-1] - 1.5)  # drop of 1.5 brings RSI to ~57 (crosses below 70)
+    strategy = RsiExtremeStrategy(period=14, overbought=70.0, oversold=30.0)
+    candles = make_candles_with_closes(closes)
+    decision = strategy.evaluate(candles, [])
+    assert decision.action == DecisionAction.SHORT
+    assert decision.stop_loss_px > candles[-1].close
+    assert decision.take_profit_px < candles[-1].close
+    assert "overbought" in decision.rationale.lower()
+
+
+def test_rsi_extreme_signals_long_on_oversold_cross():
+    # 16 falling candles push RSI to 0; a large rise crosses it above 30
+    closes = [5.0 - i * 0.15 for i in range(16)]
+    closes.append(closes[-1] + 1.5)  # rise of 1.5 brings RSI to ~43 (crosses above 30)
+    strategy = RsiExtremeStrategy(period=14, overbought=70.0, oversold=30.0)
+    candles = make_candles_with_closes(closes)
+    decision = strategy.evaluate(candles, [])
+    assert decision.action == DecisionAction.LONG
+    assert decision.stop_loss_px < candles[-1].close
+    assert decision.take_profit_px > candles[-1].close
+    assert "oversold" in decision.rationale.lower()
+
+
+def test_rsi_extreme_skips_when_rsi_is_mid_range():
+    # Alternating candles → RSI stays near 50
+    closes = [2.0 + (0.1 if i % 2 == 0 else -0.1) for i in range(20)]
+    strategy = RsiExtremeStrategy(period=14)
+    decision = strategy.evaluate(make_candles_with_closes(closes), [])
+    assert decision.action == DecisionAction.SKIP
+
+
+# Funding rate sentiment tests
+
+def test_funding_rate_signals_short_on_high_positive_rate():
+    candles = make_candles_with_closes([2.0] * 20)
+    strategy = FundingRateSentimentStrategy(
+        funding_provider=lambda: 0.002,
+        threshold=0.001,
+    )
+    decision = strategy.evaluate(candles, [])
+    assert decision.action == DecisionAction.SHORT
+    assert decision.stop_loss_px > candles[-1].close
+    assert decision.take_profit_px < candles[-1].close
+    assert "overleveraged long" in decision.rationale.lower()
+
+
+def test_funding_rate_signals_long_on_high_negative_rate():
+    candles = make_candles_with_closes([2.0] * 20)
+    strategy = FundingRateSentimentStrategy(
+        funding_provider=lambda: -0.002,
+        threshold=0.001,
+    )
+    decision = strategy.evaluate(candles, [])
+    assert decision.action == DecisionAction.LONG
+    assert decision.stop_loss_px < candles[-1].close
+    assert decision.take_profit_px > candles[-1].close
+    assert "overleveraged short" in decision.rationale.lower()
+
+
+def test_funding_rate_skips_when_neutral():
+    candles = make_candles_with_closes([2.0] * 20)
+    strategy = FundingRateSentimentStrategy(
+        funding_provider=lambda: 0.0005,
+        threshold=0.001,
+    )
+    decision = strategy.evaluate(candles, [])
+    assert decision.action == DecisionAction.SKIP
+    assert "neutral" in decision.rationale.lower()
+
+
+def test_funding_rate_skips_when_provider_raises():
+    candles = make_candles_with_closes([2.0] * 20)
+    def failing_provider():
+        raise RuntimeError("network error")
+    strategy = FundingRateSentimentStrategy(funding_provider=failing_provider, threshold=0.001)
+    decision = strategy.evaluate(candles, [])
+    assert decision.action == DecisionAction.SKIP
+    assert "unavailable" in decision.rationale.lower()
+
+
+# Composite strategy tests
+
+def test_composite_returns_first_non_skip():
+    always_skip = RsiExtremeStrategy(period=14)  # insufficient candles → always skip
+    always_short = FundingRateSentimentStrategy(funding_provider=lambda: 0.005, threshold=0.001)
+    composite = CompositeStrategy([always_skip, always_short], symbol="NEAR-USDC")
+    candles = make_candles_with_closes([2.0] * 10)
+    decision = composite.evaluate(candles, [])
+    assert decision.action == DecisionAction.SHORT
+
+
+def test_composite_returns_skip_with_joined_rationale_when_all_skip():
+    s1 = FundingRateSentimentStrategy(funding_provider=lambda: 0.0, threshold=0.001)
+    s2 = FundingRateSentimentStrategy(funding_provider=lambda: 0.0, threshold=0.001)
+    composite = CompositeStrategy([s1, s2], symbol="NEAR-USDC")
+    decision = composite.evaluate(make_candles_with_closes([2.0] * 5), [])
+    assert decision.action == DecisionAction.SKIP
+    assert "|" in decision.rationale

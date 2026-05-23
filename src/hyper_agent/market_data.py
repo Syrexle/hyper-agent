@@ -2,8 +2,8 @@ import json
 from itertools import count
 from typing import Any, Protocol
 
-from near_agent.strategy import Candle
-from near_agent.models import PositionSnapshot, Side
+from hyper_agent.strategy import Candle
+from hyper_agent.models import PositionSnapshot, Side
 
 
 class MarketDataUnavailable(RuntimeError):
@@ -82,16 +82,12 @@ class RootAiHttpMcpClient:
 
 
 def normalize_hyperliquid_symbol(symbol: str) -> str:
-    if symbol in {"NEAR", "NEAR-USDC"}:
-        return "NEAR-USDC"
-    return symbol
+    coin = symbol.split("-")[0]
+    return f"{coin}-USDC"
 
 
 def to_hyperliquid_coin(symbol: str) -> str:
-    normalized = normalize_hyperliquid_symbol(symbol)
-    if normalized == "NEAR-USDC":
-        return "NEAR"
-    raise MarketDataUnavailable(f"Unsupported symbol: {symbol}")
+    return symbol.split("-")[0]
 
 
 class RootAiMcpMarketData:
@@ -136,6 +132,21 @@ class RootAiMcpMarketData:
         if not rows:
             raise MarketDataUnavailable(f"Missing funding for {symbol}")
         return float(rows[-1]["fundingRate"])
+
+    def fear_greed(self) -> dict[str, Any]:
+        result = self.client.call_tool("edge_fear_greed", {})
+        if not isinstance(result, dict) or "score" not in result:
+            raise MarketDataUnavailable("edge_fear_greed returned unexpected data")
+        return result
+
+    def edge_signals(self, symbol: str, *, lookback_seconds: int = 4 * 3600) -> list[dict[str, Any]]:
+        import time
+        coin = to_hyperliquid_coin(symbol)
+        market = f"{coin}-USD-PERP"
+        result = self.client.call_tool("edge_signals_latest", {"market": market, "limit": 20})
+        rows = result.get("result", []) if isinstance(result, dict) else []
+        cutoff = time.time() - lookback_seconds
+        return [r for r in rows if isinstance(r, dict) and r.get("ts", 0) >= cutoff]
 
     def summary(self, symbol: str) -> dict[str, Any]:
         coin = to_hyperliquid_coin(symbol)

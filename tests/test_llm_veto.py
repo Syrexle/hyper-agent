@@ -1,14 +1,14 @@
 import pytest
 
-from near_agent.config import Settings
-from near_agent.llm_veto import (
+from hyper_agent.config import Settings
+from hyper_agent.llm_veto import (
     DisabledVetoProvider,
     OpenAiCompatibleChatClient,
     OpenAiVetoProvider,
     VetoError,
     build_veto_provider,
 )
-from near_agent.models import Decision, DecisionAction
+from hyper_agent.models import Decision, DecisionAction
 
 
 def decision():

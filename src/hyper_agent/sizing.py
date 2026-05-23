@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from near_agent.config import Settings
-from near_agent.strategy import Candle, calculate_atr
+from hyper_agent.config import Settings
+from hyper_agent.strategy import Candle, calculate_atr
 
 
 @dataclass(frozen=True, slots=True)

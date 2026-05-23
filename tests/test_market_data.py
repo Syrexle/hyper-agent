@@ -1,14 +1,14 @@
 import pytest
 
-from near_agent.market_data import (
+from hyper_agent.market_data import (
     HyperliquidAccountData,
     MarketDataUnavailable,
     RootAiHttpMcpClient,
     RootAiMcpMarketData,
     normalize_hyperliquid_symbol,
 )
-from near_agent.models import Side
-from near_agent.strategy import Candle
+from hyper_agent.models import Side
+from hyper_agent.strategy import Candle
 
 
 class FakeMcpClient:

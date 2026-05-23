@@ -1,5 +1,5 @@
-from near_agent.models import Side
-from near_agent.trailing import PositionControls, TrailingStopManager
+from hyper_agent.models import Side
+from hyper_agent.trailing import PositionControls, TrailingStopManager
 
 
 def test_trailing_stop_activates_after_profit_threshold_for_long():

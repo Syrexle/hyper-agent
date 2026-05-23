@@ -1,8 +1,8 @@
 from decimal import Decimal
 
-from near_agent.config import Settings
-from near_agent.sizing import VolatilitySizer
-from near_agent.strategy import Candle
+from hyper_agent.config import Settings
+from hyper_agent.sizing import VolatilitySizer
+from hyper_agent.strategy import Candle
 
 
 def candle(open_px, high, low, close):
