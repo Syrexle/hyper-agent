@@ -173,6 +173,10 @@ class StateStore:
                 (trade_date.isoformat(),),
             )
 
+    def has_trade_on(self, trade_date: date) -> bool:
+        row = self._daily_row(trade_date)
+        return bool(row and row["trade_opened"])
+
     def has_loss_on(self, trade_date: date) -> bool:
         row = self._daily_row(trade_date)
         return bool(row and row["loss_realized"])
@@ -180,6 +184,16 @@ class StateStore:
     def daily_win_count(self, trade_date: date) -> int:
         row = self._daily_row(trade_date)
         return int(row["wins_count"]) if row else 0
+
+    def open_trade_count(self) -> int:
+        with self._connect() as con:
+            row = con.execute("SELECT COUNT(*) AS count FROM trades WHERE status = ?", (TradeStatus.OPEN.value,)).fetchone()
+        return int(row["count"])
+
+    def open_notional_usd(self) -> float:
+        with self._connect() as con:
+            row = con.execute("SELECT COALESCE(SUM(notional_usd), 0) AS total FROM trades WHERE status = ?", (TradeStatus.OPEN.value,)).fetchone()
+        return float(row["total"])
 
     def _daily_row(self, trade_date: date) -> sqlite3.Row | None:
         with self._connect() as con:

@@ -40,9 +40,14 @@ class RiskEngine:
         if existing_position and existing_position.symbol == decision.symbol:
             reasons.append(f"Existing {decision.symbol} position found; switch into position-management mode")
         if self.state.has_loss_on(today):
-            reasons.append("Loss occurred today — no new positions until tomorrow")
+            reasons.append("loss occurred today — no new positions until tomorrow")
         if self.state.daily_win_count(today) >= 3:
             reasons.append("3 winning trades today — daily cap reached")
+        if self.state.open_trade_count() >= self.settings.max_open_positions:
+            reasons.append(f"max open positions reached ({self.settings.max_open_positions})")
+        projected_notional = Decimal(str(self.state.open_notional_usd())) + self.settings.fixed_notional_usd
+        if projected_notional > self.settings.max_total_notional_usd:
+            reasons.append(f"max total notional exceeded (${projected_notional} > ${self.settings.max_total_notional_usd})")
         if decision.stop_loss_px is None or decision.take_profit_px is None:
             reasons.append("Candidate must include stop-loss and take-profit prices")
 

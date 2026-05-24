@@ -3,7 +3,7 @@ from datetime import date
 from typing import Protocol
 
 from hyper_agent.config import Settings
-from hyper_agent.executor import DryRunExecutor, ExecutionPlan, LiveExecutionGate
+from hyper_agent.executor import ExecutionPlan, LiveExecutionGate
 from hyper_agent.llm_veto import DisabledVetoProvider
 from hyper_agent.models import Decision, DecisionAction, PositionSnapshot, Side, Trade, TradeJournalEntry, TradeStatus
 from hyper_agent.risk import RiskEngine
@@ -158,6 +158,9 @@ class TradingDaemon:
         )
         if self.settings.live_trading and not result.submitted:
             return f"live_order_rejected: {result.message}"
+        if self.settings.live_trading and result.submitted and not result.stop_loss_protected:
+            if self.notifier and hasattr(self.notifier, "error"):
+                self.notifier.error(f"{decision.symbol} opened without native stop protection: {result.message}")
         if result.submitted:
             self.state.record_trade_journal_entry(
                 TradeJournalEntry(

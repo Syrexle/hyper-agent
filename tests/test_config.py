@@ -88,3 +88,13 @@ def test_rejects_negative_backtest_costs():
 
     with pytest.raises(ValueError, match="BACKTEST_FEE_BPS"):
         settings.validate_for_startup()
+
+
+def test_validates_exposure_caps():
+    settings = Settings(_env_file=None, max_open_positions=0)
+    try:
+        settings.validate_for_startup()
+    except ValueError as exc:
+        assert "MAX_OPEN_POSITIONS" in str(exc)
+    else:
+        raise AssertionError("expected validation error")

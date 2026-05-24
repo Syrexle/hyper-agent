@@ -366,7 +366,8 @@ def test_rejected_live_order_is_not_marked_open_or_journaled(tmp_path):
 
     result = daemon.run_once(today=date(2026, 5, 22))
 
-    assert result == "live_order_rejected"
+    assert result.startswith("live_order_rejected")
+    assert "minimum order value" in result
     assert store.list_trade_journal_entries() == []
     assert store.has_trade_on(date(2026, 5, 22)) is False
 

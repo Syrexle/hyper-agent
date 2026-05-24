@@ -280,21 +280,21 @@ class RsiExtremeStrategy:
         last = primary[-1]
         atr = calculate_atr(primary, self.period)
         stop_distance = max(atr * 1.5, last.close * self.initial_stop_pct / 100)
-        if curr_rsi > self.overbought:
+        if curr_rsi > self.overbought or (prev_rsi > self.overbought and curr_rsi <= self.overbought):
             return Decision(
                 symbol=self.symbol,
                 action=DecisionAction.SHORT,
                 allowed=True,
-                rationale=f"RSI extreme short: RSI {curr_rsi:.1f} above overbought {self.overbought}",
+                rationale=f"RSI extreme short: RSI {curr_rsi:.1f} crossed/held overbought {self.overbought}",
                 stop_loss_px=round(last.close + stop_distance, 6),
                 take_profit_px=round(last.close - stop_distance * 1.5, 6),
             )
-        if curr_rsi < self.oversold:
+        if curr_rsi < self.oversold or (prev_rsi < self.oversold and curr_rsi >= self.oversold):
             return Decision(
                 symbol=self.symbol,
                 action=DecisionAction.LONG,
                 allowed=True,
-                rationale=f"RSI extreme long: RSI {curr_rsi:.1f} below oversold {self.oversold}",
+                rationale=f"RSI extreme long: RSI {curr_rsi:.1f} crossed/held oversold {self.oversold}",
                 stop_loss_px=round(last.close - stop_distance, 6),
                 take_profit_px=round(last.close + stop_distance * 1.5, 6),
             )

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import time
-from getpass import getpass
 from datetime import datetime, timedelta
+from getpass import getpass
 from zoneinfo import ZoneInfo
 
 from hyper_agent.backtest import BacktestEngine
@@ -16,7 +16,13 @@ from hyper_agent.notifications import DiscordNotifier
 from hyper_agent.risk import RiskEngine
 from hyper_agent.sizing import VolatilitySizer
 from hyper_agent.state import StateStore
-from hyper_agent.strategy import Candle, CompositeStrategy, FundingRateSentimentStrategy, MultiTimeframeEmaStrategy, RsiExtremeStrategy
+from hyper_agent.strategy import (
+    Candle,
+    CompositeStrategy,
+    FundingRateSentimentStrategy,
+    MultiTimeframeEmaStrategy,
+    RsiExtremeStrategy,
+)
 from hyper_agent.trailing import PositionControls, TrailingStopManager
 
 
@@ -199,6 +205,7 @@ def build_trailing_exit_reason_provider(settings: Settings, store: StateStore, *
 
 def run_parameter_sweep(settings: Settings, market_data: RootAiMcpMarketData, top_n: int = 20) -> list[dict]:
     import itertools
+
     from hyper_agent.strategy import MultiTimeframeEmaStrategy
 
     end_time = int(time.time() * 1000)

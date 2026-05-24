@@ -1,7 +1,7 @@
-from pathlib import Path
-from time import sleep
 import csv
 import sys
+from pathlib import Path
+from time import perf_counter, sleep
 
 import typer
 
@@ -9,7 +9,7 @@ from hyper_agent.config import Settings
 from hyper_agent.market_data import RootAiHttpMcpClient, RootAiMcpMarketData
 from hyper_agent.runtime import build_daemon, run_backtest, run_parameter_sweep
 from hyper_agent.state import StateStore
-
+from hyper_agent.sweep_env import apply_env_mapping
 
 app = typer.Typer(help="Hyperliquid trading daemon")
 
@@ -35,6 +35,8 @@ def init(path: Path = typer.Option(Path("."), help="Directory to initialize")) -
                     "CONFIRM_FIRST_N_TRADES=5",
                     "FIXED_NOTIONAL_USD=10",
                     "MAX_LEVERAGE=10",
+                    "MAX_OPEN_POSITIONS=3",
+                    "MAX_TOTAL_NOTIONAL_USD=100",
                     "LOCAL_TIMEZONE=America/New_York",
                     "END_OF_DAY_FLATTEN_TIME=23:30",
                     "ROOTAI_MCP_URL=https://mcp.rootai.wtf/mcp",
@@ -59,12 +61,12 @@ def init(path: Path = typer.Option(Path("."), help="Directory to initialize")) -
                 ]
             )
         )
-    StateStore(path / "near-agent.sqlite")
+    StateStore(path / "hyper-agent.sqlite")
     typer.echo(f"initialized {path}")
 
 
 @app.command()
-def check(db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path")) -> None:
+def check(db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path")) -> None:
     settings = Settings()
     settings.validate_for_startup()
     StateStore(db)
@@ -73,14 +75,14 @@ def check(db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite databa
 
 
 @app.command()
-def status(db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path")) -> None:
+def status(db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path")) -> None:
     store = StateStore(db)
     typer.echo(f"confirmations: {store.confirmation_count()}")
 
 
 @app.command()
 def once(
-    db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path"),
+    db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path"),
     offline: bool = typer.Option(False, help="Skip RootAI/Hyperliquid network adapters"),
 ) -> None:
     settings = Settings()
@@ -93,7 +95,7 @@ def once(
 
 @app.command()
 def daemon(
-    db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path"),
+    db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path"),
     offline: bool = typer.Option(False, help="Skip RootAI/Hyperliquid network adapters"),
     interval_seconds: int = typer.Option(300, min=0, help="Seconds to wait between cycles"),
     cycles: int | None = typer.Option(None, min=1, help="Stop after this many cycles"),
@@ -105,8 +107,10 @@ def daemon(
     cycle = 0
     while True:
         cycle += 1
+        started = perf_counter()
         result = trading_daemon.run_once(today=__import__("datetime").date.today())
-        typer.echo(f"cycle {cycle}: {result}")
+        elapsed = perf_counter() - started
+        typer.echo(f"cycle {cycle}: {result} duration_seconds={elapsed:.3f}")
         if cycles is not None and cycle >= cycles:
             return
         sleep(interval_seconds)
@@ -114,7 +118,7 @@ def daemon(
 
 @app.command()
 def backtest(
-    db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path"),
+    db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path"),
     offline: bool = typer.Option(False, help="Skip RootAI market data fetch"),
 ) -> None:
     settings = Settings()
@@ -148,8 +152,9 @@ def backtest(
 
 @app.command()
 def sweep(
-    db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path"),
+    db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path"),
     top: int = typer.Option(20, help="Number of top results to show"),
+    apply: bool = typer.Option(False, "--apply", help="Write the Venice recommendation to .env"),
 ) -> None:
     """Parameter sweep — find best EMA/stop settings across tracked symbols."""
     settings = Settings()
@@ -181,11 +186,13 @@ def sweep(
         typer.echo("\nAnalyzing results with Venice...")
         try:
             import re as _re
+
             import httpx as _httpx
             table = "\n".join(rows[:10])
             prompt = (
                 f"You are a quant analyst reviewing EMA strategy parameter sweep results "
-                f"from a 90-day crypto perps backtest across 5 symbols (TON, ENA, JUP, BNB, NEAR).\n"
+                f"from a 90-day crypto perps backtest across {len(settings.symbols)} configured symbols.\n"
+                f"Symbols: {', '.join(settings.symbols)}.\n"
                 f"Columns: Rank, EMA fast/slow, MinATR%, MinSpread%, Stop%, total trades, win rate, avg return.\n\n"
                 f"{table}\n\n"
                 f"Pick the single best parameter set that balances win rate, trade frequency, and avg return. "
@@ -209,29 +216,31 @@ def sweep(
             if match:
                 import json as _json
                 params = _json.loads(match.group(1))
-                env_path = Path(".env")
-                if env_path.exists():
-                    env_text = env_path.read_text()
-                    mapping = {
-                        "EMA_FAST": str(int(params["ema_fast"])),
-                        "EMA_SLOW": str(int(params["ema_slow"])),
-                        "MIN_ATR_PCT": str(params["min_atr_pct"]),
-                        "MIN_EMA_SPREAD_PCT": str(params["min_ema_spread_pct"]),
-                        "INITIAL_STOP_PCT": str(params["initial_stop_pct"]),
-                    }
+                mapping = {
+                    "EMA_FAST": str(int(params["ema_fast"])),
+                    "EMA_SLOW": str(int(params["ema_slow"])),
+                    "MIN_ATR_PCT": str(params["min_atr_pct"]),
+                    "MIN_EMA_SPREAD_PCT": str(params["min_ema_spread_pct"]),
+                    "INITIAL_STOP_PCT": str(params["initial_stop_pct"]),
+                }
+                if not apply:
+                    typer.echo("\nRecommendation not applied. Re-run with --apply to write .env:")
                     for key, val in mapping.items():
-                        env_text = _re.sub(rf"^{key}=.*$", f"{key}={val}", env_text, flags=_re.MULTILINE)
-                    env_path.write_text(env_text)
+                        typer.echo(f"  {key}={val}")
+                else:
+                    backup_path = apply_env_mapping(Path(".env"), mapping)
                     typer.echo("\nApplied to .env:")
                     for key, val in mapping.items():
                         typer.echo(f"  {key}={val}")
+                    if backup_path:
+                        typer.echo(f"Backup written to {backup_path}")
                     typer.echo("\nRestart the daemon to use the new parameters.")
         except Exception as exc:
             typer.echo(f"\nVenice analysis failed: {exc}")
 
 
 @app.command()
-def export_journal(db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path")) -> None:
+def export_journal(db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path")) -> None:
     store = StateStore(db)
     fields = [
         "trade_id",
@@ -290,7 +299,7 @@ def export_journal(db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLi
 
 @app.command()
 def watch(
-    db: Path = typer.Option(Path("near-agent.sqlite"), help="SQLite database path"),
+    db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path"),
 ) -> None:
     """Live TUI — monitor pairs and edit the tracked list."""
     from hyper_agent.tui import WatchApp

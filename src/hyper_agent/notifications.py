@@ -18,7 +18,7 @@ class DiscordNotifier:
             "description": description,
             "color": color,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "footer": {"text": "NEAR Hyperliquid Agent"},
+            "footer": {"text": "Hyper Agent"},
         }
         if fields:
             embed["fields"] = fields

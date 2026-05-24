@@ -1,7 +1,7 @@
 [project]
 name = "hyper-agent-pkg"
 version = "0.1.0"
-description = "NEAR-USDC Hyperliquid intraday swing trading daemon"
+description = "Multi-symbol Hyperliquid perpetual futures trading daemon"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.2",
+    "ruff>=0.8",
 ]
 live = [
     "hyperliquid-python-sdk>=0.18.0",
@@ -34,3 +35,11 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hyper_agent"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501", "B008", "B905"]

@@ -2,8 +2,8 @@ import json
 from itertools import count
 from typing import Any, Protocol
 
-from hyper_agent.strategy import Candle
 from hyper_agent.models import PositionSnapshot, Side
+from hyper_agent.strategy import Candle
 
 
 class MarketDataUnavailable(RuntimeError):

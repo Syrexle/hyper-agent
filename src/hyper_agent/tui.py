@@ -22,7 +22,7 @@ def _find_project_root() -> Path:
 
 ROOT = _find_project_root()
 _ENV_PATH = ROOT / ".env"
-_DB_PATH = ROOT / "near-agent.sqlite"
+_DB_PATH = ROOT / "hyper-agent.sqlite"
 
 
 def _load_env_symbols() -> list[str]:

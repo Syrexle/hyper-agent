@@ -2,7 +2,6 @@ from typer.testing import CliRunner
 
 from hyper_agent.cli import app
 
-
 runner = CliRunner()
 
 
@@ -11,7 +10,7 @@ def test_init_creates_env_example_and_database(tmp_path):
 
     assert result.exit_code == 0
     assert (tmp_path / ".env.example").exists()
-    assert (tmp_path / "near-agent.sqlite").exists()
+    assert (tmp_path / "hyper-agent.sqlite").exists()
 
 
 def test_check_passes_in_dry_run_mode(tmp_path):

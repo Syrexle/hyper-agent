@@ -1,5 +1,5 @@
 from hyper_agent.config import Settings
-from hyper_agent.strategy import Candle, MultiTimeframeEmaStrategy, ema_values, calculate_atr
+from hyper_agent.strategy import Candle, MultiTimeframeEmaStrategy, calculate_atr, ema_values
 
 
 class BacktestEngine:

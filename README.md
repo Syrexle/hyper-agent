@@ -168,7 +168,7 @@ Sends alerts for: signal detected, position opened, position closed (with PnL), 
 ## Package
 
 ```
-src/hyper_agent/   ← main package (renamed from near_agent)
+src/hyper_agent/   ← main package
 tests/             ← test suite
 pyproject.toml     ← entry point: hyper-agent = "hyper_agent.cli:app"
 ```

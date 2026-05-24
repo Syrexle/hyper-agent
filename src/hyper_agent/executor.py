@@ -24,6 +24,7 @@ class ExecutionResult:
     trade_id: str
     submitted: bool
     message: str
+    stop_loss_protected: bool = True
 
 
 class LiveExecutionGate:
@@ -91,7 +92,9 @@ class HyperliquidLiveExecutor:
                 message=rejection,
             )
 
-        # Place native stop loss on the exchange
+        # Place native stop loss on the exchange. If this fails, the position is open but degraded.
+        stop_loss_protected = True
+        stop_loss_message = ""
         if plan.stop_loss_px and plan.stop_loss_px > 0:
             try:
                 sl_px = round(plan.stop_loss_px, 6)
@@ -106,10 +109,11 @@ class HyperliquidLiveExecutor:
                 )
                 sl_rejection = _order_rejection_reason(sl_response)
                 if sl_rejection:
-                    # Non-fatal: position is open, just log the failure
-                    pass
-            except Exception:
-                pass  # Non-fatal — software stop still runs as backup
+                    stop_loss_protected = False
+                    stop_loss_message = f"; native stop loss failed: {sl_rejection}"
+            except Exception as exc:
+                stop_loss_protected = False
+                stop_loss_message = f"; native stop loss failed: {exc}"
 
         self.state.upsert_trade(
             Trade(
@@ -124,7 +128,8 @@ class HyperliquidLiveExecutor:
         return ExecutionResult(
             trade_id=plan.trade_id,
             submitted=True,
-            message="live open submitted",
+            message="live open submitted" + stop_loss_message,
+            stop_loss_protected=stop_loss_protected,
         )
 
     def close_position(self, symbol: str, reason: str) -> ExecutionResult:

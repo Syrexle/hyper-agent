@@ -1,4 +1,4 @@
-"""NEAR-USDC Hyperliquid trading agent."""
+"""Multi-symbol Hyperliquid trading agent."""
 
 __all__ = ["__version__"]
 

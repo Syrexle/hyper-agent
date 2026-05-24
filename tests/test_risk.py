@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from hyper_agent.config import Settings
-from hyper_agent.models import Decision, DecisionAction, Side, PositionSnapshot
+from hyper_agent.models import Decision, DecisionAction, PositionSnapshot, Side
 from hyper_agent.risk import RiskEngine
 from hyper_agent.state import StateStore
 
@@ -28,27 +28,26 @@ def test_allows_valid_first_trade(tmp_path):
     assert result.notional_usd == Decimal("10")
 
 
-def test_blocks_non_near_usdc_symbol(tmp_path):
+def test_blocks_symbol_outside_tracked_list(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
     engine = RiskEngine(Settings(), store)
     decision = long_decision()
-    decision.symbol = "BTC-USDC"
+    decision.symbol = "NOTLISTED-USDC"
 
     result = engine.evaluate_candidate(decision, today=date(2026, 5, 22))
 
     assert result.allowed is False
-    assert "NEAR-USDC" in result.reasons[0]
+    assert "tracked symbol list" in result.reasons[0]
 
 
-def test_blocks_second_trade_same_day(tmp_path):
+def test_allows_multiple_trades_same_day_until_loss_or_win_cap(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
     store.mark_trade_opened(date(2026, 5, 22))
     engine = RiskEngine(Settings(), store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
 
-    assert result.allowed is False
-    assert "already been opened" in result.reasons[0]
+    assert result.allowed is True
 
 
 def test_blocks_after_daily_loss(tmp_path):
@@ -100,3 +99,28 @@ def test_blocks_new_entries_when_existing_position_is_active(tmp_path):
 
     assert result.allowed is False
     assert "position-management mode" in result.reasons[0]
+
+
+def test_blocks_when_max_open_positions_reached(tmp_path):
+    store = StateStore(tmp_path / "agent.sqlite")
+    for idx, symbol in enumerate(["BTC-USDC", "ETH-USDC", "SOL-USDC"]):
+        from hyper_agent.models import Trade, TradeStatus
+        store.upsert_trade(Trade(f"trade-{idx}", symbol=symbol, side=Side.LONG, status=TradeStatus.OPEN, notional_usd=10, entry_px=1))
+    engine = RiskEngine(Settings(max_open_positions=3), store)
+
+    result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
+
+    assert result.allowed is False
+    assert "max open positions" in result.reasons[0]
+
+
+def test_blocks_when_projected_notional_exceeds_cap(tmp_path):
+    from hyper_agent.models import Trade, TradeStatus
+    store = StateStore(tmp_path / "agent.sqlite")
+    store.upsert_trade(Trade("trade-1", symbol="BTC-USDC", side=Side.LONG, status=TradeStatus.OPEN, notional_usd=95, entry_px=1))
+    engine = RiskEngine(Settings(max_total_notional_usd=Decimal("100"), fixed_notional_usd=Decimal("10")), store)
+
+    result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
+
+    assert result.allowed is False
+    assert "max total notional" in result.reasons[0]

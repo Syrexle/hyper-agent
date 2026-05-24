@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     rsi_overbought: Decimal = Field(default=Decimal("70"), alias="RSI_OVERBOUGHT")
     rsi_oversold: Decimal = Field(default=Decimal("30"), alias="RSI_OVERSOLD")
     funding_rate_threshold: Decimal = Field(default=Decimal("0.001"), alias="FUNDING_RATE_THRESHOLD")
+    max_open_positions: int = Field(default=3, alias="MAX_OPEN_POSITIONS")
+    max_total_notional_usd: Decimal = Field(default=Decimal("100"), alias="MAX_TOTAL_NOTIONAL_USD")
 
     def validate_for_startup(self) -> None:
         if not self.symbols:
@@ -117,6 +119,10 @@ class Settings(BaseSettings):
             raise ValueError("RSI_OVERSOLD must be less than RSI_OVERBOUGHT, both between 0 and 100")
         if self.funding_rate_threshold <= 0:
             raise ValueError("FUNDING_RATE_THRESHOLD must be greater than zero")
+        if self.max_open_positions <= 0:
+            raise ValueError("MAX_OPEN_POSITIONS must be greater than zero")
+        if self.max_total_notional_usd <= 0:
+            raise ValueError("MAX_TOTAL_NOTIONAL_USD must be greater than zero")
         if self.live_trading:
             missing = []
             if not self.hyperliquid_private_key:

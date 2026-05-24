@@ -46,6 +46,10 @@ def test_live_executor_delegates_market_open_to_hyperliquid_sdk(tmp_path):
             self.calls.append(("market_open", name, is_buy, sz, slippage))
             return {"status": "ok"}
 
+        def order(self, name, is_buy, sz, px, order_type, reduce_only):
+            self.calls.append(("order", name, is_buy, sz, px, order_type, reduce_only))
+            return {"status": "ok"}
+
     store = StateStore(tmp_path / "agent.sqlite")
     exchange = FakeExchange()
     executor = HyperliquidLiveExecutor(store, exchange)
@@ -65,7 +69,8 @@ def test_live_executor_delegates_market_open_to_hyperliquid_sdk(tmp_path):
     result = executor.open_position(plan)
 
     assert result.submitted is True
-    assert exchange.calls == [("market_open", "NEAR", True, 4.0, 0.01)]
+    assert exchange.calls[0] == ("market_open", "NEAR", True, 4.0, 0.01)
+    assert exchange.calls[1][0] == "order"
     assert store.get_trade("trade-1") is not None
 
 
@@ -117,3 +122,34 @@ def test_live_executor_delegates_market_close_to_hyperliquid_sdk(tmp_path):
 
     assert result.submitted is True
     assert result.message == "live close submitted: risk_exit"
+
+
+def test_live_executor_reports_degraded_native_stop_loss(tmp_path):
+    class FakeExchange:
+        def market_open(self, name, is_buy, sz, slippage):
+            return {"status": "ok"}
+
+        def order(self, name, is_buy, sz, px, order_type, reduce_only):
+            return {"status": "err", "response": "trigger rejected"}
+
+    store = StateStore(tmp_path / "agent.sqlite")
+    executor = HyperliquidLiveExecutor(store, FakeExchange())
+    plan = ExecutionPlan(
+        trade_id="trade-1",
+        symbol="NEAR-USDC",
+        side=Side.LONG,
+        action=DecisionAction.LONG,
+        notional_usd=10,
+        entry_px=2.5,
+        stop_loss_px=2.2,
+        take_profit_px=3.0,
+        leverage=2,
+        size_base=4.0,
+    )
+
+    result = executor.open_position(plan)
+
+    assert result.submitted is True
+    assert result.stop_loss_protected is False
+    assert "native stop loss failed" in result.message
+    assert store.get_trade("trade-1") is not None
