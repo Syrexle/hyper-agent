@@ -7,7 +7,7 @@ import typer
 
 from hyper_agent.config import Settings
 from hyper_agent.market_data import RootAiHttpMcpClient, RootAiMcpMarketData
-from hyper_agent.runtime import build_daemon, run_backtest, run_parameter_sweep
+from hyper_agent.runtime import build_daemon, run_backtest, run_parameter_sweep, run_rsi_symbol_ranking
 from hyper_agent.state import StateStore
 from hyper_agent.sweep_env import apply_env_mapping
 
@@ -108,7 +108,15 @@ def daemon(
     while True:
         cycle += 1
         started = perf_counter()
-        result = trading_daemon.run_once(today=__import__("datetime").date.today())
+        try:
+            result = trading_daemon.run_once(today=__import__("datetime").date.today())
+        except Exception as exc:
+            elapsed = perf_counter() - started
+            typer.echo(f"cycle {cycle}: error duration_seconds={elapsed:.3f} — {exc}", err=True)
+            if cycles is not None and cycle >= cycles:
+                return
+            sleep(interval_seconds)
+            continue
         elapsed = perf_counter() - started
         typer.echo(f"cycle {cycle}: {result} duration_seconds={elapsed:.3f}")
         if cycles is not None and cycle >= cycles:
@@ -237,6 +245,49 @@ def sweep(
                     typer.echo("\nRestart the daemon to use the new parameters.")
         except Exception as exc:
             typer.echo(f"\nVenice analysis failed: {exc}")
+
+
+@app.command()
+def rank_symbols(
+    db: Path = typer.Option(Path("hyper-agent.sqlite"), help="SQLite database path"),
+    top: int = typer.Option(5, help="Number of top symbols to keep"),
+    apply: bool = typer.Option(False, "--apply", help="Write top symbols to SYMBOLS in .env"),
+) -> None:
+    """Rank all symbols by RSI strategy backtest performance and optionally narrow SYMBOLS in .env."""
+    settings = Settings()
+    settings.validate_for_startup()
+    StateStore(db)
+    typer.echo(f"Running RSI backtest on {len(settings.symbols)} symbols ({settings.backtest_days} days)...")
+    results = run_rsi_symbol_ranking(
+        settings,
+        RootAiMcpMarketData(RootAiHttpMcpClient(settings.rootai_mcp_url)),
+    )
+
+    typer.echo(f"\n{'Rank':<5} {'Symbol':<15} {'Trades':>7} {'WinRate':>8} {'AvgTrade':>9} {'Return':>8}")
+    typer.echo("-" * 58)
+    for i, r in enumerate(results, 1):
+        if "error" in r:
+            typer.echo(f"{i:<5} {r['symbol']:<15} ERROR: {r['error']}")
+        else:
+            typer.echo(
+                f"{i:<5} {r['symbol']:<15} {r['trades']:>7} "
+                f"{r['win_rate_pct']:>7.1f}% {r['avg_trade_pct']:>8.3f}% {r['total_return_pct']:>7.2f}%"
+            )
+
+    valid = [r for r in results if "error" not in r]
+    top_symbols = [r["symbol"] for r in valid[:top]]
+    typer.echo(f"\nTop {top}: {', '.join(top_symbols)}")
+
+    if not apply:
+        typer.echo("Re-run with --apply to write these symbols to .env")
+        return
+
+    from hyper_agent.sweep_env import apply_env_mapping
+    backup = apply_env_mapping(Path(".env"), {"SYMBOLS": ",".join(top_symbols)})
+    typer.echo("Updated SYMBOLS in .env")
+    if backup:
+        typer.echo(f"Backup: {backup}")
+    typer.echo("Restart the daemon to use the new symbol list.")
 
 
 @app.command()

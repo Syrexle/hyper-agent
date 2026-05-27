@@ -176,8 +176,8 @@ def test_rsi_extreme_skips_when_insufficient_data():
 
 
 def test_rsi_extreme_signals_short_on_overbought_cross():
-    # 16 rising candles push RSI to 100; a large drop crosses it below 70
-    closes = [1.0 + i * 0.15 for i in range(16)]
+    # 17 rising candles push RSI to 100; a large drop crosses it below 70
+    closes = [1.0 + i * 0.15 for i in range(17)]
     closes.append(closes[-1] - 1.5)  # drop of 1.5 brings RSI to ~57 (crosses below 70)
     strategy = RsiExtremeStrategy(period=14, overbought=70.0, oversold=30.0)
     candles = make_candles_with_closes(closes)
@@ -189,8 +189,8 @@ def test_rsi_extreme_signals_short_on_overbought_cross():
 
 
 def test_rsi_extreme_signals_long_on_oversold_cross():
-    # 16 falling candles push RSI to 0; a large rise crosses it above 30
-    closes = [5.0 - i * 0.15 for i in range(16)]
+    # 17 falling candles push RSI to 0; a large rise crosses it above 30
+    closes = [5.0 - i * 0.15 for i in range(17)]
     closes.append(closes[-1] + 1.5)  # rise of 1.5 brings RSI to ~43 (crosses above 30)
     strategy = RsiExtremeStrategy(period=14, overbought=70.0, oversold=30.0)
     candles = make_candles_with_closes(closes)

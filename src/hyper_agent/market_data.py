@@ -165,25 +165,32 @@ class HyperliquidAccountData:
         self.info_client = info_client
         self.account_address = account_address
 
-    def existing_position(self, symbol: str) -> PositionSnapshot | None:
-        coin = to_hyperliquid_coin(symbol)
+    def all_positions(self, symbols: list[str]) -> list[PositionSnapshot]:
+        """Fetch all open positions in a single API call."""
+        coins = {to_hyperliquid_coin(s) for s in symbols}
         state = self.info_client.user_state(self.account_address)
+        result = []
         for item in state.get("assetPositions", []):
             position = item.get("position", {})
-            if position.get("coin") != coin:
+            coin = position.get("coin")
+            if coin not in coins:
                 continue
             signed_size = float(position.get("szi", "0"))
             if signed_size == 0:
-                return None
-            return PositionSnapshot(
+                continue
+            result.append(PositionSnapshot(
                 symbol=normalize_hyperliquid_symbol(coin),
                 side=Side.LONG if signed_size > 0 else Side.SHORT,
                 size=abs(signed_size),
                 entry_px=float(position.get("entryPx", 0)),
                 unrealized_pnl_usd=float(position.get("unrealizedPnl", 0)),
                 liquidation_px=_optional_float(position.get("liquidationPx")),
-            )
-        return None
+            ))
+        return result
+
+    def existing_position(self, symbol: str) -> PositionSnapshot | None:
+        positions = self.all_positions([symbol])
+        return positions[0] if positions else None
 
 
 def _optional_float(value: Any) -> float | None:

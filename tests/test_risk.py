@@ -20,7 +20,7 @@ def long_decision():
 
 def test_allows_valid_first_trade(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
-    engine = RiskEngine(Settings(), store)
+    engine = RiskEngine(Settings(_env_file=None), store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
 
@@ -30,7 +30,7 @@ def test_allows_valid_first_trade(tmp_path):
 
 def test_blocks_symbol_outside_tracked_list(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
-    engine = RiskEngine(Settings(), store)
+    engine = RiskEngine(Settings(_env_file=None), store)
     decision = long_decision()
     decision.symbol = "NOTLISTED-USDC"
 
@@ -43,7 +43,7 @@ def test_blocks_symbol_outside_tracked_list(tmp_path):
 def test_allows_multiple_trades_same_day_until_loss_or_win_cap(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
     store.mark_trade_opened(date(2026, 5, 22))
-    engine = RiskEngine(Settings(), store)
+    engine = RiskEngine(Settings(_env_file=None), store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
 
@@ -53,7 +53,7 @@ def test_allows_multiple_trades_same_day_until_loss_or_win_cap(tmp_path):
 def test_blocks_after_daily_loss(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
     store.mark_loss(date(2026, 5, 22))
-    engine = RiskEngine(Settings(), store)
+    engine = RiskEngine(Settings(_env_file=None), store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
 
@@ -63,7 +63,7 @@ def test_blocks_after_daily_loss(tmp_path):
 
 def test_blocks_effective_leverage_above_ten(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
-    settings = Settings(max_leverage=Decimal("10.5"))
+    settings = Settings(_env_file=None, max_leverage=Decimal("10.5"))
     engine = RiskEngine(settings, store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
@@ -74,7 +74,7 @@ def test_blocks_effective_leverage_above_ten(tmp_path):
 
 def test_blocks_missing_stop_or_target(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
-    engine = RiskEngine(Settings(), store)
+    engine = RiskEngine(Settings(_env_file=None), store)
     decision = long_decision()
     decision.stop_loss_px = None
 
@@ -86,7 +86,7 @@ def test_blocks_missing_stop_or_target(tmp_path):
 
 def test_blocks_new_entries_when_existing_position_is_active(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
-    engine = RiskEngine(Settings(), store)
+    engine = RiskEngine(Settings(_env_file=None), store)
     existing = PositionSnapshot(
         symbol="NEAR-USDC",
         side=Side.LONG,
@@ -106,7 +106,7 @@ def test_blocks_when_max_open_positions_reached(tmp_path):
     for idx, symbol in enumerate(["BTC-USDC", "ETH-USDC", "SOL-USDC"]):
         from hyper_agent.models import Trade, TradeStatus
         store.upsert_trade(Trade(f"trade-{idx}", symbol=symbol, side=Side.LONG, status=TradeStatus.OPEN, notional_usd=10, entry_px=1))
-    engine = RiskEngine(Settings(max_open_positions=3), store)
+    engine = RiskEngine(Settings(_env_file=None, max_open_positions=3), store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
 
@@ -118,7 +118,7 @@ def test_blocks_when_projected_notional_exceeds_cap(tmp_path):
     from hyper_agent.models import Trade, TradeStatus
     store = StateStore(tmp_path / "agent.sqlite")
     store.upsert_trade(Trade("trade-1", symbol="BTC-USDC", side=Side.LONG, status=TradeStatus.OPEN, notional_usd=95, entry_px=1))
-    engine = RiskEngine(Settings(max_total_notional_usd=Decimal("100"), fixed_notional_usd=Decimal("10")), store)
+    engine = RiskEngine(Settings(_env_file=None, max_total_notional_usd=Decimal("100"), fixed_notional_usd=Decimal("10")), store)
 
     result = engine.evaluate_candidate(long_decision(), today=date(2026, 5, 22))
 

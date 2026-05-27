@@ -66,6 +66,12 @@ class DryRunExecutor:
             message=f"dry-run close recorded: {reason}",
         )
 
+    def cancel_open_orders(self, symbol: str) -> int:
+        return 0
+
+    def place_stop_loss(self, symbol: str, side: Side, size: float, stop_px: float) -> bool:
+        return False
+
 
 class HyperliquidLiveExecutor:
     def __init__(self, state: StateStore, sdk_client, *, slippage: float = 0.01, size_decimals: int = 1):
@@ -73,13 +79,25 @@ class HyperliquidLiveExecutor:
         self.sdk_client = sdk_client
         self.slippage = slippage
         self.size_decimals = size_decimals
+        self._sz_decimals_cache: dict[str, int] = {}
+
+    def _sz_decimals_for(self, coin: str) -> int:
+        if coin in self._sz_decimals_cache:
+            return self._sz_decimals_cache[coin]
+        try:
+            meta = self.sdk_client.info.meta()
+            for asset in meta.get("universe", []):
+                self._sz_decimals_cache[asset["name"]] = int(asset.get("szDecimals", self.size_decimals))
+        except Exception:
+            pass
+        return self._sz_decimals_cache.get(coin, self.size_decimals)
 
     def open_position(self, plan: ExecutionPlan) -> ExecutionResult:
         import math
         coin = _to_hyperliquid_coin(plan.symbol)
         is_buy = plan.side == Side.LONG
         raw = plan.size_base if plan.size_base is not None else float(plan.notional_usd) / plan.entry_px
-        factor = 10 ** self.size_decimals
+        factor = 10 ** self._sz_decimals_for(coin)
         size = math.ceil(raw * factor) / factor
 
         # Open market position
@@ -97,14 +115,15 @@ class HyperliquidLiveExecutor:
         stop_loss_message = ""
         if plan.stop_loss_px and plan.stop_loss_px > 0:
             try:
-                sl_px = round(plan.stop_loss_px, 6)
-                # Stop is opposite side to close the position
+                close_is_buy = not is_buy
+                trigger_px = self.sdk_client._slippage_price(coin, close_is_buy, 0.0, plan.stop_loss_px)
+                limit_px = self.sdk_client._slippage_price(coin, close_is_buy, self.slippage, plan.stop_loss_px)
                 sl_response = self.sdk_client.order(
                     coin,
-                    not is_buy,  # sell to close long, buy to close short
+                    close_is_buy,
                     size,
-                    sl_px,
-                    {"trigger": {"triggerPx": sl_px, "isMarket": True, "tpsl": "sl"}},
+                    limit_px,
+                    {"trigger": {"triggerPx": trigger_px, "isMarket": True, "tpsl": "sl"}},
                     reduce_only=True,
                 )
                 sl_rejection = _order_rejection_reason(sl_response)
@@ -139,6 +158,53 @@ class HyperliquidLiveExecutor:
             submitted=True,
             message=f"live close submitted: {reason}",
         )
+
+    def cancel_open_orders(self, symbol: str) -> int:
+        coin = _to_hyperliquid_coin(symbol)
+        address = self.sdk_client.account_address
+        open_orders = self.sdk_client.info.open_orders(address)
+        cancelled = 0
+        for order in open_orders:
+            if order.get("coin") != coin:
+                continue
+            oid = order.get("oid")
+            if oid is None:
+                continue
+            try:
+                self.sdk_client.cancel(coin, oid)
+                cancelled += 1
+            except Exception:
+                pass
+        return cancelled
+
+    def place_stop_loss(self, symbol: str, side: Side, size: float, stop_px: float) -> bool:
+        import math
+        coin = _to_hyperliquid_coin(symbol)
+        is_buy = side == Side.LONG
+        close_is_buy = not is_buy
+        factor = 10 ** self._sz_decimals_for(coin)
+        rounded_size = math.ceil(size * factor) / factor
+        # trigger price: properly rounded to Hyperliquid's 5-sig-fig format
+        trigger_px = self.sdk_client._slippage_price(coin, close_is_buy, 0.0, stop_px)
+        # limit price: worst-case fill price (slippage below trigger for sells, above for buys)
+        limit_px = self.sdk_client._slippage_price(coin, close_is_buy, self.slippage, stop_px)
+        try:
+            response = self.sdk_client.order(
+                coin,
+                close_is_buy,
+                rounded_size,
+                limit_px,
+                {"trigger": {"triggerPx": trigger_px, "isMarket": True, "tpsl": "sl"}},
+                reduce_only=True,
+            )
+            rejection = _order_rejection_reason(response)
+            if rejection:
+                print(f"[executor] place_stop_loss rejected for {symbol}: {rejection}")
+                return False
+            return True
+        except Exception as exc:
+            print(f"[executor] place_stop_loss failed for {symbol}: {exc}")
+            return False
 
 
 def _to_hyperliquid_coin(symbol: str) -> str:

@@ -46,6 +46,9 @@ def test_live_executor_delegates_market_open_to_hyperliquid_sdk(tmp_path):
             self.calls.append(("market_open", name, is_buy, sz, slippage))
             return {"status": "ok"}
 
+        def _slippage_price(self, name, is_buy, slippage, px):
+            return round(px * ((1 + slippage) if is_buy else (1 - slippage)), 6)
+
         def order(self, name, is_buy, sz, px, order_type, reduce_only):
             self.calls.append(("order", name, is_buy, sz, px, order_type, reduce_only))
             return {"status": "ok"}

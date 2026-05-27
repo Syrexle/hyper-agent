@@ -16,12 +16,21 @@ class AccountData(Protocol):
     def existing_position(self, symbol: str) -> PositionSnapshot | None:
         ...
 
+    def all_positions(self, symbols: list[str]) -> list[PositionSnapshot]:
+        ...
+
 
 class Executor(Protocol):
     def open_position(self, plan: ExecutionPlan):
         ...
 
     def close_position(self, symbol: str, reason: str):
+        ...
+
+    def cancel_open_orders(self, symbol: str) -> int:
+        ...
+
+    def place_stop_loss(self, symbol: str, side, size: float, stop_px: float) -> bool:
         ...
 
 
@@ -77,12 +86,21 @@ class TradingDaemon:
         if not account_state_ok:
             return "account_state_unavailable"
 
-        position = None
-        for sym in self.settings.symbols:
-            position = self.account_data.existing_position(sym)
-            if position is not None:
-                break
-        if position is not None:
+        # Collect all open positions in a single API call if supported, else iterate
+        if hasattr(self.account_data, "all_positions"):
+            open_positions = self.account_data.all_positions(self.settings.symbols)
+        else:
+            seen: set[str] = set()
+            open_positions = []
+            for sym in self.settings.symbols:
+                pos = self.account_data.existing_position(sym)
+                if pos is not None and pos.symbol not in seen:
+                    open_positions.append(pos)
+                    seen.add(pos.symbol)
+
+        # Manage every open position
+        any_closed = False
+        for position in open_positions:
             self._adopt_existing_position(position)
             if self.position_exit_reason_provider:
                 reason = self.position_exit_reason_provider(position)
@@ -95,16 +113,27 @@ class TradingDaemon:
                             reason=reason,
                             pnl_pct=_position_pnl_pct(position, exit_px),
                         )
-                    return self.close_existing_position(reason, symbol=position.symbol)
+                    self.close_existing_position(reason, symbol=position.symbol)
+                    any_closed = True
+
+        open_symbols = {p.symbol for p in open_positions}
+
+        if any_closed:
+            return "closed_existing_position"
+        if open_positions and len(open_positions) >= self.settings.max_open_positions:
             return "managed_existing_position"
 
+        # Scan for new entries on symbols without an open position
         if self.candidate_provider is None:
-            return "no_candidate_provider"
+            return "managed_existing_position" if open_positions else "no_candidate_provider"
 
-        decision = self.candidate_provider()
+        try:
+            decision = self.candidate_provider(excluded_symbols=open_symbols)
+        except TypeError:
+            decision = self.candidate_provider()
         if decision.action == DecisionAction.SKIP:
             self.state.record_decision(decision)
-            return "skipped"
+            return "skipped" if not open_positions else "managed_existing_position"
 
         risk = (self.risk_engine or RiskEngine(self.settings, self.state)).evaluate_candidate(
             decision,
@@ -201,6 +230,12 @@ class TradingDaemon:
         return "opened_live_position" if result.submitted else "opened_dry_run_position"
 
     def _adopt_existing_position(self, position: PositionSnapshot) -> None:
+        already_adopted = self.state.get_trade(f"adopted-{position.symbol}") is not None
+        if not already_adopted:
+            self.executor.cancel_open_orders(position.symbol)
+            stop_distance = position.entry_px * float(self.settings.initial_stop_pct) / 100
+            stop_px = position.entry_px - stop_distance if position.side == Side.LONG else position.entry_px + stop_distance
+            self.executor.place_stop_loss(position.symbol, position.side, position.size, stop_px)
         self.state.upsert_trade(
             Trade(
                 trade_id=f"adopted-{position.symbol}",

@@ -81,8 +81,50 @@ def _parse_latest_scan(db_path: Path) -> tuple[dict[str, dict], str]:
             "rsi": float(rsi_m.group(1)) if rsi_m else None,
             "funding": float(fund_m.group(1)) if fund_m else None,
             "unavailable": "data unavailable" in pair_text.lower(),
+            "rationale": pair_text,
         }
     return result, dt
+
+
+def _parse_open_positions(db_path: Path) -> dict[str, dict]:
+    """Read position_controls rows for all symbols with an active position."""
+    if not db_path.exists():
+        return {}
+    try:
+        con = sqlite3.connect(db_path)
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT symbol, side, entry_px, initial_stop_px, trailing_stop_px, highest_pnl_pct, max_drawdown_pct "
+            "FROM position_controls"
+        ).fetchall()
+        con.close()
+    except Exception:
+        return {}
+    return {
+        row["symbol"]: {
+            "side": row["side"],
+            "entry_px": row["entry_px"],
+            "initial_stop_px": row["initial_stop_px"],
+            "trailing_stop_px": row["trailing_stop_px"],
+            "highest_pnl_pct": row["highest_pnl_pct"],
+            "max_drawdown_pct": row["max_drawdown_pct"],
+        }
+        for row in rows
+    }
+
+
+def _open_notional(db_path: Path) -> float:
+    if not db_path.exists():
+        return 0.0
+    try:
+        con = sqlite3.connect(db_path)
+        row = con.execute(
+            "SELECT COALESCE(SUM(notional_usd), 0) AS total FROM trades WHERE status = 'open'"
+        ).fetchone()
+        con.close()
+        return float(row[0]) if row else 0.0
+    except Exception:
+        return 0.0
 
 
 class AddPairModal(ModalScreen[str | None]):
@@ -156,27 +198,54 @@ class WatchApp(App):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("Pair", "RSI", "Funding /8h", "RSI Status", "Tracked")
+        table.add_columns(
+            "Pair",
+            "Position",
+            "Entry",
+            "Stop",
+            "Peak PnL%",
+            "RSI",
+            "Funding /8h",
+            "Status",
+        )
         self._do_refresh()
         self.set_interval(30, self._do_refresh)
 
     def _do_refresh(self) -> None:
         symbols = _load_env_symbols()
         scan, last_ts = _parse_latest_scan(self._db_path)
+        positions = _parse_open_positions(self._db_path)
+        notional = _open_notional(self._db_path)
 
         table = self.query_one(DataTable)
         table.clear()
 
-        # Show all scanned pairs, then any tracked-only ones not in scan
-        ordered = list(scan.keys()) + [s for s in symbols if s not in scan]
+        # Show tracked symbols first, then any extra symbols seen in the latest scan
+        ordered = list(symbols) + [s for s in scan if s not in symbols]
 
         for sym in ordered:
             data = scan.get(sym, {})
+            pos = positions.get(sym)
+
             rsi: float | None = data.get("rsi")
             funding: float | None = data.get("funding")
             unavailable: bool = data.get("unavailable", False)
-            tracked = "✓" if sym in symbols else ""
 
+            # Position columns
+            if pos:
+                side_label = "LONG  ▲" if pos["side"] == "long" else "SHORT ▼"
+                entry_str = f"{pos['entry_px']:.5g}"
+                active_stop = pos["trailing_stop_px"] if pos["trailing_stop_px"] else pos["initial_stop_px"]
+                stop_str = f"{active_stop:.5g}"
+                peak = pos["highest_pnl_pct"] or 0.0
+                peak_str = f"+{peak:.2f}%" if peak >= 0 else f"{peak:.2f}%"
+            else:
+                side_label = "—"
+                entry_str = "—"
+                stop_str = "—"
+                peak_str = "—"
+
+            # RSI / scan columns
             if unavailable or (rsi is None and sym in scan):
                 rsi_str, fund_str, status = "N/A", "N/A", "unavailable"
             elif rsi is None:
@@ -184,18 +253,29 @@ class WatchApp(App):
             else:
                 rsi_str = f"{rsi:.1f}"
                 fund_str = f"{funding:+.4f}%" if funding is not None else "—"
-                if rsi < 30:
+                if rsi <= 30:
                     status = "OVERSOLD  ▲ LONG?"
-                elif rsi > 70:
+                elif rsi >= 70:
                     status = "OVERBOUGHT ▼ SHORT?"
+                elif rsi <= 35:
+                    status = "near oversold"
+                elif rsi >= 65:
+                    status = "near overbought"
                 else:
                     status = "neutral"
 
-            table.add_row(sym, rsi_str, fund_str, status, tracked, key=sym)
+            table.add_row(
+                sym, side_label, entry_str, stop_str, peak_str,
+                rsi_str, fund_str, status,
+                key=sym,
+            )
 
-        n = len(symbols)
+        n_open = len(positions)
+        n_tracked = len(symbols)
+        notional_str = f"${notional:.0f}" if notional > 0 else "$0"
         self.query_one("#status", Static).update(
-            f" Last scan: {last_ts}  |  {n} pairs tracked  |  [a] add  [d] remove selected  [r] refresh"
+            f" Last scan: {last_ts}  |  {n_open} open / {n_tracked} tracked  ({notional_str} notional)"
+            f"  |  [a] add  [d] remove  [r] refresh"
         )
 
     def action_refresh(self) -> None:

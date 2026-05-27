@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 from getpass import getpass
-from zoneinfo import ZoneInfo
 
 from hyper_agent.backtest import BacktestEngine
 from hyper_agent.config import Settings
@@ -22,6 +21,7 @@ from hyper_agent.strategy import (
     FundingRateSentimentStrategy,
     MultiTimeframeEmaStrategy,
     RsiExtremeStrategy,
+    calculate_rsi,
 )
 from hyper_agent.trailing import PositionControls, TrailingStopManager
 
@@ -39,7 +39,7 @@ class MultiSymbolCandidateProvider:
         self.last_confirm_candles: list[Candle] = []
         self._strategies = {symbol: strategy_factory(symbol) for symbol in settings.symbols}
 
-    def __call__(self) -> Decision:
+    def __call__(self, excluded_symbols: set[str] | None = None) -> Decision:
         end_ms = int(time.time() * 1000)
         primary_start = end_ms - 48 * 3600 * 1000
         confirm_start = end_ms - 240 * 3600 * 1000
@@ -52,6 +52,8 @@ class MultiSymbolCandidateProvider:
             pass
 
         for symbol in self.settings.symbols:
+            if excluded_symbols and symbol in excluded_symbols:
+                continue
             try:
                 primary = self.market_data.candles(symbol, interval=self.settings.primary_timeframe, start_time=primary_start, end_time=end_ms)
                 confirm = self.market_data.candles(symbol, interval=self.settings.confirm_timeframe, start_time=confirm_start, end_time=end_ms)
@@ -93,6 +95,13 @@ class MultiSymbolCandidateProvider:
             except Exception:
                 pass
 
+            # 5-min reversal gate for RSI entries: require a confirming candle before entering
+            if "RSI extreme" in decision.rationale:
+                deny_reason = self._check_5min_reversal(symbol, decision.action, end_ms)
+                if deny_reason:
+                    skip_reasons.append(f"{symbol}: {deny_reason}")
+                    continue
+
             self.last_primary_candles = primary
             self.last_confirm_candles = confirm
             return decision
@@ -105,6 +114,77 @@ class MultiSymbolCandidateProvider:
             allowed=False,
             rationale=" || ".join(skip_reasons),
         )
+
+    def _check_5min_reversal(self, symbol: str, action: DecisionAction, end_ms: int) -> str | None:
+        """Return a veto reason if the 5-min chart doesn't confirm a V-bottom/V-top RSI signal, or None if it does.
+
+        Three checks must pass:
+        1. Sharp prior move — price dropped/rose meaningfully into the extreme candle
+        2. Rejection wick — the extreme candle has a long lower/upper wick showing price was pushed back
+        3. Reversal candle — the latest candle is green/red and closing in the right direction
+        """
+        try:
+            start_ms = end_ms - 45 * 60 * 1000  # last 45 minutes (~9 candles)
+            candles = self.market_data.candles(symbol, interval="5m", start_time=start_ms, end_time=end_ms)
+        except Exception:
+            return None  # data unavailable — don't block the trade
+
+        if len(candles) < 3:
+            return None
+
+        extreme = candles[-2]   # bottom/top candle with the wick
+        recovery = candles[-1]  # reversal candle
+        prior = candles[-3]     # candle before the extreme, used to measure the drop/rise
+
+        candle_range = extreme.high - extreme.low
+
+        if action == DecisionAction.LONG:
+            # Check 1: sharp prior drop — price fell into the extreme candle's low
+            drop_pct = (prior.close - extreme.low) / prior.close * 100
+            if drop_pct < 0.3:
+                return (
+                    f"V-bottom check: prior drop too shallow ({drop_pct:.3f}% into low, need ≥0.3%)"
+                )
+
+            # Check 2: lower wick rejection — extreme candle has a long lower wick
+            if candle_range > 0:
+                lower_wick_ratio = (extreme.close - extreme.low) / candle_range
+                if lower_wick_ratio < 0.4:
+                    return (
+                        f"V-bottom check: weak lower wick on bottom candle (ratio {lower_wick_ratio:.2f}, need ≥0.40)"
+                    )
+
+            # Check 3: green recovery candle closing above prior close
+            if not (recovery.close > recovery.open and recovery.close > extreme.close):
+                return (
+                    f"V-bottom check: waiting for recovery candle "
+                    f"(close {recovery.close:.4f} vs open {recovery.open:.4f}, extreme close {extreme.close:.4f})"
+                )
+
+        elif action == DecisionAction.SHORT:
+            # Check 1: sharp prior rise — price rose into the extreme candle's high
+            rise_pct = (extreme.high - prior.close) / prior.close * 100
+            if rise_pct < 0.3:
+                return (
+                    f"V-top check: prior rise too shallow ({rise_pct:.3f}% into high, need ≥0.3%)"
+                )
+
+            # Check 2: upper wick rejection — extreme candle has a long upper wick
+            if candle_range > 0:
+                upper_wick_ratio = (extreme.high - extreme.close) / candle_range
+                if upper_wick_ratio < 0.4:
+                    return (
+                        f"V-top check: weak upper wick on top candle (ratio {upper_wick_ratio:.2f}, need ≥0.40)"
+                    )
+
+            # Check 3: bearish recovery candle closing below prior close
+            if not (recovery.close < recovery.open and recovery.close < extreme.close):
+                return (
+                    f"V-top check: waiting for rejection candle "
+                    f"(close {recovery.close:.4f} vs open {recovery.open:.4f}, extreme close {extreme.close:.4f})"
+                )
+
+        return None
 
 
 def build_daemon(settings: Settings, store: StateStore, *, offline: bool = False) -> TradingDaemon:
@@ -164,25 +244,16 @@ def build_daemon(settings: Settings, store: StateStore, *, offline: bool = False
         confirm_callback=_confirm_live_trade,
         entry_price_provider=lambda symbol: market_data.mid(symbol),
         position_exit_reason_provider=build_trailing_exit_reason_provider(
-            settings, store, mark_price_provider=lambda symbol: market_data.mid(symbol)
+            settings, store,
+            mark_price_provider=lambda symbol: market_data.mid(symbol),
+            market_data=market_data,
         ),
         sizing_provider=lambda price: sizer.calculate(candidate_provider.last_primary_candles, price=price),
         notifier=DiscordNotifier(settings.discord_webhook_url) if settings.discord_webhook_url else None,
     )
 
 
-def build_position_exit_reason_provider(settings: Settings, *, now_provider=lambda: datetime.now(ZoneInfo("UTC"))):
-    def exit_reason(_position):
-        local_now = now_provider().astimezone(ZoneInfo(settings.local_timezone))
-        flatten_hour, flatten_minute = _parse_hh_mm(settings.end_of_day_flatten_time)
-        if (local_now.hour, local_now.minute) >= (flatten_hour, flatten_minute):
-            return "end_of_day_flatten"
-        return None
-
-    return exit_reason
-
-
-def build_trailing_exit_reason_provider(settings: Settings, store: StateStore, *, mark_price_provider):
+def build_trailing_exit_reason_provider(settings: Settings, store: StateStore, *, mark_price_provider, market_data=None):
     manager = TrailingStopManager(start_pct=settings.trailing_start_pct, distance_pct=settings.trailing_distance_pct)
 
     def exit_reason(position):
@@ -198,7 +269,30 @@ def build_trailing_exit_reason_provider(settings: Settings, store: StateStore, *
         manager.update(controls, mark_px=mark_px)
         should_exit, reason = manager.check_exit(controls, mark_px=mark_px)
         store.upsert_position_controls(controls)
-        return reason if should_exit else None
+        if should_exit:
+            return reason
+
+        # RSI exhaustion exit: close long if overbought, close short if oversold
+        if market_data is not None:
+            try:
+                end_ms = int(time.time() * 1000)
+                candles = market_data.candles(
+                    position.symbol,
+                    interval=settings.primary_timeframe,
+                    start_time=end_ms - 48 * 3600 * 1000,
+                    end_time=end_ms,
+                )
+                rsi = calculate_rsi(candles, settings.rsi_period)
+                if rsi:
+                    curr_rsi = rsi[-1]
+                    if position.side.value == "long" and curr_rsi >= float(settings.rsi_overbought):
+                        return f"rsi_overbought_exit (RSI {curr_rsi:.1f})"
+                    if position.side.value == "short" and curr_rsi <= float(settings.rsi_oversold):
+                        return f"rsi_oversold_exit (RSI {curr_rsi:.1f})"
+            except Exception:
+                pass
+
+        return None
 
     return exit_reason
 
@@ -283,6 +377,46 @@ def run_parameter_sweep(settings: Settings, market_data: RootAiMcpMarketData, to
 
     results.sort(key=lambda r: (r["win_rate_pct"], r["avg_return_pct"]), reverse=True)
     return results[:top_n]
+
+
+def run_rsi_symbol_ranking(settings: Settings, market_data: RootAiMcpMarketData) -> list[dict]:
+    from hyper_agent.backtest import RsiBacktestEngine
+
+    end_time = int(time.time() * 1000)
+    start_time = int((datetime.now() - timedelta(days=settings.backtest_days)).timestamp() * 1000)
+    results = []
+    for symbol in settings.symbols:
+        try:
+            candles = market_data.candles(
+                symbol,
+                interval=settings.primary_timeframe,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            result = RsiBacktestEngine(settings, symbol).run(candles)
+            results.append(result)
+        except Exception as exc:
+            results.append({
+                "symbol": symbol,
+                "error": str(exc),
+                "total_return_pct": -9999.0,
+                "win_rate_pct": 0.0,
+                "trades": 0,
+                "avg_trade_pct": 0.0,
+                "final_capital": 1000.0,
+                "total_cost_usd": 0.0,
+            })
+
+    def _rank_key(r: dict):
+        if r.get("error"):
+            return (-9999.0, 0.0, 0)
+        trades = r.get("trades", 0)
+        # deprioritize symbols with fewer than 3 trades
+        trade_bonus = 0 if trades >= 3 else -1000
+        return (r.get("total_return_pct", -9999.0) + trade_bonus, r.get("win_rate_pct", 0.0), trades)
+
+    results.sort(key=_rank_key, reverse=True)
+    return results
 
 
 def run_backtest(settings: Settings, market_data: RootAiMcpMarketData) -> list[dict]:
@@ -372,12 +506,3 @@ def _confirm_live_trade(decision) -> bool:
         "Type YES to submit, anything else to skip: "
     )
     return answer == "YES"
-
-
-def _parse_hh_mm(value: str) -> tuple[int, int]:
-    hour_raw, minute_raw = value.split(":", maxsplit=1)
-    hour = int(hour_raw)
-    minute = int(minute_raw)
-    if hour not in range(24) or minute not in range(60):
-        raise ValueError("END_OF_DAY_FLATTEN_TIME must be HH:MM")
-    return hour, minute

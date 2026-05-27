@@ -269,7 +269,7 @@ class RsiExtremeStrategy:
 
     def evaluate(self, primary: list[Candle], confirm: list[Candle]) -> Decision:
         rsi = calculate_rsi(primary, self.period)
-        if len(rsi) < 2:
+        if len(rsi) < 3:
             return Decision(
                 symbol=self.symbol,
                 action=DecisionAction.SKIP,
@@ -280,24 +280,33 @@ class RsiExtremeStrategy:
         last = primary[-1]
         atr = calculate_atr(primary, self.period)
         stop_distance = max(atr * 1.5, last.close * self.initial_stop_pct / 100)
-        if curr_rsi > self.overbought or (prev_rsi > self.overbought and curr_rsi <= self.overbought):
+
+        short_crossback = prev_rsi > self.overbought and curr_rsi <= self.overbought
+        short_turning = rsi[-3] > rsi[-2] > rsi[-1] and curr_rsi > self.overbought
+        if short_crossback or short_turning:
+            reason = "crossback below overbought" if short_crossback else "turning down in overbought territory"
             return Decision(
                 symbol=self.symbol,
                 action=DecisionAction.SHORT,
                 allowed=True,
-                rationale=f"RSI extreme short: RSI {curr_rsi:.1f} crossed/held overbought {self.overbought}",
+                rationale=f"RSI extreme short: RSI {curr_rsi:.1f} — {reason} ({self.overbought})",
                 stop_loss_px=round(last.close + stop_distance, 6),
                 take_profit_px=round(last.close - stop_distance * 1.5, 6),
             )
-        if curr_rsi < self.oversold or (prev_rsi < self.oversold and curr_rsi >= self.oversold):
+
+        long_crossback = prev_rsi < self.oversold and curr_rsi >= self.oversold
+        long_turning = rsi[-3] < rsi[-2] < rsi[-1] and curr_rsi < self.oversold
+        if long_crossback or long_turning:
+            reason = "crossback above oversold" if long_crossback else "turning up in oversold territory"
             return Decision(
                 symbol=self.symbol,
                 action=DecisionAction.LONG,
                 allowed=True,
-                rationale=f"RSI extreme long: RSI {curr_rsi:.1f} crossed/held oversold {self.oversold}",
+                rationale=f"RSI extreme long: RSI {curr_rsi:.1f} — {reason} ({self.oversold})",
                 stop_loss_px=round(last.close - stop_distance, 6),
                 take_profit_px=round(last.close + stop_distance * 1.5, 6),
             )
+
         return Decision(
             symbol=self.symbol,
             action=DecisionAction.SKIP,

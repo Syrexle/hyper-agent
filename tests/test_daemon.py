@@ -16,7 +16,14 @@ class StaticAccountData:
         self.position = position
 
     def existing_position(self, symbol):
-        return self.position
+        if self.position and self.position.symbol == symbol:
+            return self.position
+        return None
+
+    def all_positions(self, symbols):
+        if self.position and self.position.symbol in symbols:
+            return [self.position]
+        return []
 
 
 def test_adopts_existing_near_position_without_confirmation(tmp_path):
@@ -132,7 +139,7 @@ def test_close_existing_position_updates_live_trade_journal(tmp_path):
         )
     )
     daemon = TradingDaemon(
-        settings=Settings(),
+        settings=Settings(_env_file=None),
         state=store,
         account_data=StaticAccountData(None),
         executor=DryRunExecutor(store),
@@ -155,7 +162,7 @@ def test_ambiguous_position_blocks_new_entries(tmp_path):
     store = StateStore(tmp_path / "agent.sqlite")
     decision = Decision(symbol="NEAR-USDC", action=DecisionAction.LONG, allowed=True, rationale="test")
     daemon = TradingDaemon(
-        settings=Settings(),
+        settings=Settings(_env_file=None),
         state=store,
         account_data=StaticAccountData(position=None),
         executor=DryRunExecutor(store),
@@ -309,6 +316,7 @@ def test_live_submitted_trade_records_journal_entry(tmp_path):
         take_profit_px=2.6,
     )
     settings = Settings(
+        _env_file=None,
         live_trading=True,
         hyperliquid_private_key="0x" + "1" * 64,
         hyperliquid_account_address="0xabc",
@@ -347,6 +355,7 @@ def test_rejected_live_order_is_not_marked_open_or_journaled(tmp_path):
         take_profit_px=1.8,
     )
     settings = Settings(
+        _env_file=None,
         live_trading=True,
         hyperliquid_private_key="0x" + "1" * 64,
         hyperliquid_account_address="0xabc",
@@ -382,7 +391,7 @@ def test_live_trade_requires_confirmation_during_initial_confirmation_window(tmp
         stop_loss_px=2.7,
         take_profit_px=2.2,
     )
-    settings = Settings(live_trading=True, hyperliquid_private_key="0x" + "1" * 64, hyperliquid_account_address="0xabc")
+    settings = Settings(_env_file=None, live_trading=True, hyperliquid_private_key="0x" + "1" * 64, hyperliquid_account_address="0xabc")
     daemon = TradingDaemon(
         settings=settings,
         state=store,
